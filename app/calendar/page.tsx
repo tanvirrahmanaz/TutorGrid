@@ -16,7 +16,7 @@ const DAY_PRESETS = [
 ]
 
 function CalendarContent(){
-  const {students,schedules,exceptions,settings,saveSchedule,saveSchedulesBulk,deleteSchedule,saveException}=useData()
+  const {students,schedules,exceptions,settings,saveSchedule,saveSchedulesBulk,deleteSchedule,deleteException,saveException}=useData()
   const [week,setWeek]=useState(new Date())
   const [modal,setModal]=useState(false)
   const [selected,setSelected]=useState<any>(null)
@@ -1014,6 +1014,9 @@ function CalendarContent(){
                         } else {
                           if (confirm(`Are you sure you want to permanently delete ${sName}'s weekly schedule on ${DAYS[selectedDayIdx]}?`)) {
                             await deleteSchedule(c.id)
+                            if (c.exception?.id) {
+                              await deleteException(c.exception.id)
+                            }
                           }
                         }
                       }}
