@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS,prettyTime,minutesFromTime,timeFromMinutes} from '@/lib/utils'
 import {addDays,format,startOfWeek,subWeeks,addWeeks} from 'date-fns'
-import {ChevronLeft,ChevronRight,Plus,Trash2,Check,Clock,Calendar as CalIcon,RefreshCw,Sparkles,AlertTriangle,CheckCircle2,Info} from 'lucide-react'
+import {ChevronLeft,ChevronRight,Plus,Trash2,Check,Clock,Calendar as CalIcon,RefreshCw,Sparkles,AlertTriangle,CheckCircle2,Info,UserX} from 'lucide-react'
 
 const DAY_PRESETS = [
   { label: 'Sat / Mon / Wed', days: [0, 2, 4] },
@@ -43,9 +43,16 @@ function CalendarContent(){
 
   function studentName(id:string){return students.find(s=>s.id===id)?.name||'Student'}
 
+  // Unscheduled students list (Active students who have NO weekly schedules)
+  const unscheduledStudents = useMemo(() => {
+    return activeStudents.filter(st => {
+      return !schedules.some(s => s.student_id === st.id && s.active !== false)
+    })
+  }, [activeStudents, schedules])
+
   // Auto set initial student when modal opens
-  function openAddModal(prefillDay?: number, prefillTime?: string){
-    const firstId = activeStudents[0]?.id || ''
+  function openAddModal(prefillDay?: number, prefillTime?: string, prefillStudentId?: string){
+    const firstId = prefillStudentId || (unscheduledStudents[0]?.id) || (activeStudents[0]?.id) || ''
     setSelectedStudentId(firstId)
     setSelectedDays(prefillDay !== undefined ? [prefillDay] : [0])
     setStartTime(prefillTime || '07:00')
@@ -144,7 +151,6 @@ function CalendarContent(){
         return dayClasses.every(s => {
           const sStart = minutesFromTime(s.start_time)
           const sEnd = sStart + s.duration_minutes
-          // Overlap condition: not (end <= sStart or start >= sEnd)
           const isOverlapping = !(candEndM <= sStart || candStartM >= sEnd)
           return !isOverlapping
         })
@@ -262,6 +268,7 @@ function CalendarContent(){
   }
 
   const currentStudentSchedules = schedules.filter(s => s.student_id === selectedStudentId && s.active !== false)
+  const isSelectedStudentUnscheduled = unscheduledStudents.some(st => st.id === selectedStudentId)
 
   return <>
     <Topbar 
@@ -273,6 +280,58 @@ function CalendarContent(){
         </button>
       }
     />
+
+    {/* Unscheduled Students Alert Banner */}
+    {unscheduledStudents.length > 0 && (
+      <div style={{
+        background:'#fff7ed',
+        border:'1px solid #fdba74',
+        borderRadius:14,
+        padding:'12px 16px',
+        marginBottom:16,
+        display:'flex',
+        alignItems:'center',
+        justifyContent:'space-between',
+        flexWrap:'wrap',
+        gap:10
+      }}>
+        <div style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#9a3412'}}>
+          <UserX size={18} style={{color:'#ea580c', flexShrink:0}}/>
+          <div>
+            <b>{unscheduledStudents.length} Students have no schedule set yet (শিডিউল বাকি আছে):</b>
+            <div style={{fontSize:12, color:'#c2410c'}}>
+              নিচের স্টুডেন্টের নামের উপর ক্লিক করে দ্রুত শিডিউল সেট করুন:
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+          {unscheduledStudents.map(st => (
+            <button
+              key={st.id}
+              type="button"
+              onClick={() => openAddModal(undefined, undefined, st.id)}
+              style={{
+                background:'#fff',
+                border:'1px solid #ea580c',
+                color:'#c2410c',
+                borderRadius:999,
+                padding:'5px 12px',
+                fontSize:12,
+                fontWeight:700,
+                cursor:'pointer',
+                display:'flex',
+                alignItems:'center',
+                gap:5,
+                boxShadow:'0 1px 3px rgba(234, 88, 12, 0.15)'
+              }}
+            >
+              ⚡ Set Schedule: <b>{st.name}</b>
+            </button>
+          ))}
+        </div>
+      </div>
+    )}
     
     <div className="toolbar">
       <div className="week-nav">
@@ -545,10 +604,41 @@ function CalendarContent(){
       </Modal>
     )}
 
-    {/* Add weekly class modal with SMART FREE SLOTS FINDER */}
+    {/* Add weekly class modal with SMART FREE SLOTS & UNSCHEDULED DETECTOR */}
     {modal&&(
       <Modal title="Add weekly schedule" onClose={()=>setModal(false)}>
         <form onSubmit={handleAddClasses} className="form-grid">
+          
+          {/* Quick Unscheduled Student Chips inside Modal */}
+          {unscheduledStudents.length > 0 && (
+            <div style={{gridColumn:'1/-1',background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:10,padding:'8px 12px'}}>
+              <span style={{fontSize:11,fontWeight:700,color:'#c2410c',display:'block',marginBottom:4}}>
+                ⚡ শিডিউল বাকি থাকা স্টুডেন্ট (ক্লিক করে সিলেক্ট করুন):
+              </span>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {unscheduledStudents.map(st => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setSelectedStudentId(st.id)}
+                    style={{
+                      background: selectedStudentId === st.id ? '#ea580c' : '#fff',
+                      color: selectedStudentId === st.id ? '#fff' : '#9a3412',
+                      border: '1px solid #ea580c',
+                      borderRadius: 999,
+                      padding: '3px 10px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {st.name} {selectedStudentId === st.id ? '✓' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="field" style={{gridColumn:'1/-1'}}>
             <label>Student</label>
             <select 
@@ -557,10 +647,21 @@ function CalendarContent(){
               onChange={e=>setSelectedStudentId(e.target.value)}
               required
             >
-              {activeStudents.map(s=>(
-                <option key={s.id} value={s.id}>{s.name} {s.subject ? `(${s.subject})` : ''}</option>
-              ))}
+              {activeStudents.map(s=>{
+                const studentScheds = schedules.filter(sc => sc.student_id === s.id && sc.active !== false)
+                const isUnscheduled = studentScheds.length === 0
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.name} {isUnscheduled ? '— ⚠️ No schedule set (শিডিউল বাকি)' : `(✓ ${studentScheds.length} days: ${studentScheds.map(sc=>DAYS[sc.day_of_week].slice(0,3)).join(',')})`}
+                  </option>
+                )
+              })}
             </select>
+            {isSelectedStudentUnscheduled && (
+              <div style={{fontSize:12,color:'#ea580c',marginTop:4,fontWeight:600}}>
+                ⚠️ <b>{studentName(selectedStudentId)}</b> এর এখনো কোনো রুটিন সেট করা হয়নি। নিচে দিন ও ফাঁকা সময় বেছে নিন।
+              </div>
+            )}
           </div>
 
           {/* Multi-select Days Section */}
@@ -777,7 +878,7 @@ function CalendarContent(){
           )}
 
           {/* Existing weekly classes for this student */}
-          {currentStudentSchedules.length > 0 && (
+          {currentStudentSchedules.length > 0 ? (
             <div style={{gridColumn:'1/-1',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:12}}>
               <div style={{fontSize:12,fontWeight:700,color:'#64748b',marginBottom:6,textTransform:'uppercase',letterSpacing:'.04em'}}>
                 Current weekly schedule for {studentName(selectedStudentId)}:
@@ -809,6 +910,10 @@ function CalendarContent(){
                   </div>
                 ))}
               </div>
+            </div>
+          ) : (
+            <div style={{gridColumn:'1/-1',background:'#fffbeb',border:'1px dashed #f59e0b',borderRadius:10,padding:10,fontSize:12,color:'#b45309',textAlign:'center'}}>
+              ℹ️ <b>{studentName(selectedStudentId)}</b> এর কোনো আগের রুটিন নেই। দিন এবং সময় সিলেক্ট করে সেভ করুন।
             </div>
           )}
 
