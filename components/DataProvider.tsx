@@ -610,6 +610,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     const target = schedules.find(s => s.id === id)
 
+    // Optimistic local removal
     setSchedules(prev => {
       const next = prev.filter(s => s.id !== id)
       persistLocal({ schedules: next })
@@ -618,16 +619,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     if (supabase) {
       try {
+        // Hard delete from Supabase
         await supabase.from('schedules').delete().eq('id', id)
-        // Also cleanup duplicate schedule rows in Supabase and associated exceptions
+
+        // Also delete any duplicate active rows for the same student+day+time slot
         if (target) {
           const cleanTime = target.start_time.slice(0, 5)
+          // Delete all schedules for this student on this day at this time (catches duplicates)
           await supabase.from('schedules').delete()
             .eq('student_id', target.student_id)
             .eq('day_of_week', Number(target.day_of_week))
-            .like('start_time', `${cleanTime}%`)
+            .gte('start_time', cleanTime)
+            .lte('start_time', cleanTime + ':59')
+          // Delete orphaned exceptions linked to this schedule
           await supabase.from('schedule_exceptions').delete().eq('schedule_id', id)
         }
+
+        // Re-fetch schedules from Supabase and update state
+        const deletedSchedIds = getDeletedIds('schedules')
+        const { data: freshScheds } = await supabase.from('schedules').select('*,student:students(*)').eq('active', true)
+        const cleanScheds = ((freshScheds || []) as Schedule[]).filter(s => !deletedSchedIds.has(s.id))
+        setSchedules(cleanScheds)
+        persistLocal({ schedules: cleanScheds })
         setSyncStatus('synced')
       } catch (err: any) {
         console.error('deleteSchedule error:', err)
@@ -729,14 +742,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     lastActionTimestampRef.current = Date.now()
     addDeletedId('exceptions', id)
 
+    // Optimistic local removal
     setExceptions(prev => {
       const next = prev.filter(e => e.id !== id)
       persistLocal({ exceptions: next })
       return next
     })
+
     if (supabase) {
       try {
         await supabase.from('schedule_exceptions').delete().eq('id', id)
+
+        // Re-fetch exceptions from Supabase and update state (prevents resurrection)
+        const deletedExIds = getDeletedIds('exceptions')
+        const { data: freshEx } = await supabase.from('schedule_exceptions').select('*,student:students(*)')
+        const cleanEx = ((freshEx || []) as ScheduleException[]).filter(e => !deletedExIds.has(e.id))
+        setExceptions(cleanEx)
+        persistLocal({ exceptions: cleanEx })
         setSyncStatus('synced')
       } catch (err: any) {
         console.error('Supabase exception delete error:', err)
