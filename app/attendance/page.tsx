@@ -449,9 +449,9 @@ function AttendanceContent() {
                           <div style={{display:'flex', alignItems:'center', gap:8}}>
                             <b style={{fontSize:16, color:'#0f172a'}}>{c.student?.name || 'Unknown Student'}</b>
                             {c.is_extra && <span className="badge" style={{background:'#fef3c7', color:'#92400e', fontSize:10}}>Extra Class</span>}
-                            {isCompleted && <span style={statusBadge('#dcfce7','#047857','✓ Present')} />}
-                            {isAbsent && <span style={statusBadge('#fee2e2','#b91c1c','✕ Absent')} />}
-                            {isCancelled && <span style={statusBadge('#fef3c7','#b45309', c.status)} />}
+                            {isCompleted && statusBadge('#dcfce7','#047857','✓ Present')}
+                            {isAbsent && statusBadge('#fee2e2','#b91c1c','✕ Absent')}
+                            {isCancelled && statusBadge('#fef3c7','#b45309', c.status)}
                           </div>
                           
                           <div style={{fontSize:13, color:'#64748b', display:'flex', alignItems:'center', gap:6, marginTop:3}}>
@@ -720,9 +720,9 @@ function AttendanceContent() {
                         </td>
                         <td style={td()}>{prettyTime(ex.start_time)}</td>
                         <td style={td()}>
-                          {ex.status === 'completed' && <span style={statusBadge('#dcfce7','#047857','✓ Completed')} />}
-                          {ex.status === 'absent' && <span style={statusBadge('#fee2e2','#b91c1c','✕ Absent')} />}
-                          {['cancelled','off','missed'].includes(ex.status) && <span style={statusBadge('#fef3c7','#b45309', ex.status)} />}
+                          {ex.status === 'completed' && statusBadge('#dcfce7','#047857','✓ Completed')}
+                          {ex.status === 'absent' && statusBadge('#fee2e2','#b91c1c','✕ Absent')}
+                          {['cancelled','off','missed'].includes(ex.status) && statusBadge('#fef3c7','#b45309', ex.status)}
                         </td>
                         <td style={td()}><span style={{color:'#475569', fontSize:13}}>{ex.note || '—'}</span></td>
                         <td style={td()}>
