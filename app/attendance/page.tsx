@@ -264,65 +264,77 @@ function AttendanceContent() {
       </div>
 
       {/* Main Navigation Tabs */}
-      <div style={{display:'flex', gap:8, marginBottom:16, borderBottom:'1px solid #e2e8f0', paddingBottom:12, flexWrap:'wrap'}}>
+      <div style={{
+        display:'flex',
+        gap:8,
+        marginBottom:16,
+        borderBottom:'1px solid #e2e8f0',
+        paddingBottom:12,
+        overflowX:'auto',
+        WebkitOverflowScrolling:'touch',
+        scrollbarWidth:'none'
+      }}>
         <button
           type="button"
           onClick={() => setActiveTab('daily')}
           style={{
-            padding:'8px 16px',
+            padding:'8px 14px',
             borderRadius:10,
-            fontSize:14,
+            fontSize:13,
             fontWeight:700,
             cursor:'pointer',
             display:'flex',
             alignItems:'center',
             gap:6,
+            whiteSpace:'nowrap',
             border: activeTab === 'daily' ? '2px solid #4f46e5' : '1px solid #e2e8f0',
             background: activeTab === 'daily' ? '#4f46e5' : '#fff',
             color: activeTab === 'daily' ? '#fff' : '#475569'
           }}
         >
-          <CalIcon size={16}/> দৈনিক হাজিরা (Daily Roll-Call)
+          <CalIcon size={15}/> দৈনিক রোল কল (Daily)
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('summary')}
           style={{
-            padding:'8px 16px',
+            padding:'8px 14px',
             borderRadius:10,
-            fontSize:14,
+            fontSize:13,
             fontWeight:700,
             cursor:'pointer',
             display:'flex',
             alignItems:'center',
             gap:6,
+            whiteSpace:'nowrap',
             border: activeTab === 'summary' ? '2px solid #4f46e5' : '1px solid #e2e8f0',
             background: activeTab === 'summary' ? '#4f46e5' : '#fff',
             color: activeTab === 'summary' ? '#fff' : '#475569'
           }}
         >
-          <Users size={16}/> স্টুডেন্ট হাজিরা সারাংশ (Student Reports)
+          <Users size={15}/> স্টুডেন্ট রিপোর্ট (Reports)
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('history')}
           style={{
-            padding:'8px 16px',
+            padding:'8px 14px',
             borderRadius:10,
-            fontSize:14,
+            fontSize:13,
             fontWeight:700,
             cursor:'pointer',
             display:'flex',
             alignItems:'center',
             gap:6,
+            whiteSpace:'nowrap',
             border: activeTab === 'history' ? '2px solid #4f46e5' : '1px solid #e2e8f0',
             background: activeTab === 'history' ? '#4f46e5' : '#fff',
             color: activeTab === 'history' ? '#fff' : '#475569'
           }}
         >
-          <List size={16}/> সম্পূর্ণ হিস্ট্রি লগ (Monthly Log)
+          <List size={15}/> সম্পূর্ণ হিস্ট্রি লগ (Log)
         </button>
       </div>
 
@@ -689,57 +701,59 @@ function AttendanceContent() {
               No attendance records logged for {format(selectedDate, 'MMMM yyyy')} yet.
             </div>
           ) : (
-            <table style={{width:'100%', borderCollapse:'collapse'}}>
-              <thead>
-                <tr style={{background:'#fafbfc', borderBottom:'1px solid #e2e8f0'}}>
-                  <th style={th()}>Date</th>
-                  <th style={th()}>Student</th>
-                  <th style={th()}>Time</th>
-                  <th style={th()}>Status</th>
-                  <th style={th()}>Lesson Note</th>
-                  <th style={th()}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monthlyExceptions
-                  .filter(ex => historyStatusFilter === 'all' || ex.status === historyStatusFilter)
-                  .sort((a,b) => b.class_date.localeCompare(a.class_date) || b.start_time.localeCompare(a.start_time))
-                  .map((ex, i) => {
-                    const s = students.find(x => x.id === ex.student_id)
-                    const parsedDate = parseDateKey(ex.class_date)
-                    return (
-                      <tr key={ex.id || i} style={{borderBottom:'1px solid #f1f5f9', background: i%2===0?'#fff':'#fafbfc'}}>
-                        <td style={td()}><b>{format(parsedDate, 'd MMM (EEE)')}</b></td>
-                        <td style={td()}>
-                          <div style={{display:'flex', alignItems:'center', gap:8}}>
-                            <div style={{width:26, height:26, borderRadius:6, background:s?.color||'#4f46e5', color:'#fff', display:'grid', placeItems:'center', fontSize:11, fontWeight:700}}>
-                              {s?.name?.charAt(0) || '?'}
+            <div className="table-responsive">
+              <table style={{width:'100%', minWidth:600, borderCollapse:'collapse'}}>
+                <thead>
+                  <tr style={{background:'#fafbfc', borderBottom:'1px solid #e2e8f0'}}>
+                    <th style={th()}>Date</th>
+                    <th style={th()}>Student</th>
+                    <th style={th()}>Time</th>
+                    <th style={th()}>Status</th>
+                    <th style={th()}>Lesson Note</th>
+                    <th style={th()}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyExceptions
+                    .filter(ex => historyStatusFilter === 'all' || ex.status === historyStatusFilter)
+                    .sort((a,b) => b.class_date.localeCompare(a.class_date) || b.start_time.localeCompare(a.start_time))
+                    .map((ex, i) => {
+                      const s = students.find(x => x.id === ex.student_id)
+                      const parsedDate = parseDateKey(ex.class_date)
+                      return (
+                        <tr key={ex.id || i} style={{borderBottom:'1px solid #f1f5f9', background: i%2===0?'#fff':'#fafbfc'}}>
+                          <td style={td()}><b>{format(parsedDate, 'd MMM (EEE)')}</b></td>
+                          <td style={td()}>
+                            <div style={{display:'flex', alignItems:'center', gap:8}}>
+                              <div style={{width:26, height:26, borderRadius:6, background:s?.color||'#4f46e5', color:'#fff', display:'grid', placeItems:'center', fontSize:11, fontWeight:700}}>
+                                {s?.name?.charAt(0) || '?'}
+                              </div>
+                              <span>{s?.name || 'Unknown'}</span>
                             </div>
-                            <span>{s?.name || 'Unknown'}</span>
-                          </div>
-                        </td>
-                        <td style={td()}>{prettyTime(ex.start_time)}</td>
-                        <td style={td()}>
-                          {ex.status === 'completed' && statusBadge('#dcfce7','#047857','✓ Completed')}
-                          {ex.status === 'absent' && statusBadge('#fee2e2','#b91c1c','✕ Absent')}
-                          {['cancelled','off','missed'].includes(ex.status) && statusBadge('#fef3c7','#b45309', ex.status)}
-                        </td>
-                        <td style={td()}><span style={{color:'#475569', fontSize:13}}>{ex.note || '—'}</span></td>
-                        <td style={td()}>
-                          <button
-                            type="button"
-                            onClick={() => deleteException(ex.id)}
-                            style={{border:'none', background:'none', color:'#ef4444', cursor:'pointer', padding:4}}
-                            title="Delete record"
-                          >
-                            <Trash2 size={14}/>
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
+                          </td>
+                          <td style={td()}>{prettyTime(ex.start_time)}</td>
+                          <td style={td()}>
+                            {ex.status === 'completed' && statusBadge('#dcfce7','#047857','✓ Completed')}
+                            {ex.status === 'absent' && statusBadge('#fee2e2','#b91c1c','✕ Absent')}
+                            {['cancelled','off','missed'].includes(ex.status) && statusBadge('#fef3c7','#b45309', ex.status)}
+                          </td>
+                          <td style={td()}><span style={{color:'#475569', fontSize:13}}>{ex.note || '—'}</span></td>
+                          <td style={td()}>
+                            <button
+                              type="button"
+                              onClick={() => deleteException(ex.id)}
+                              style={{border:'none', background:'none', color:'#ef4444', cursor:'pointer', padding:4}}
+                              title="Delete record"
+                            >
+                              <Trash2 size={14}/>
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

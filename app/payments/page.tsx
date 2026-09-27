@@ -86,7 +86,7 @@ function Payments(){
     </div>
 
     {/* Summary Cards */}
-    <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24}}>
+    <div className="grid grid-4" style={{gap:14, marginBottom:24}}>
       <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius:16, padding:'20px 18px', color:'#fff'}}>
         <div style={{display:'flex', alignItems:'center', gap:8, opacity:.85, fontSize:13, marginBottom:8}}>
           <TrendingUp size={15}/> Monthly Target
@@ -132,7 +132,8 @@ function Payments(){
 
     {/* Student payment table */}
     <div className="card" style={{padding:0, overflow:'hidden'}}>
-      <table style={{width:'100%', borderCollapse:'collapse'}}>
+      <div className="table-responsive">
+        <table style={{width:'100%', minWidth:540, borderCollapse:'collapse'}}>
         <thead>
           <tr style={{background:'#f9fafb'}}>
             <th style={th()}>Student</th>
@@ -180,6 +181,7 @@ function Payments(){
           ))}
         </tbody>
       </table>
+      </div>
     </div>
 
     {/* Recent payments */}

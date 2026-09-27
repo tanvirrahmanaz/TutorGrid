@@ -67,7 +67,7 @@ function StudentsContent(){
         </div>
 
         {/* Filter Pills */}
-        <div style={{display:'flex', gap:6}}>
+        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
           <button
             type="button"
             className={`btn ${filterType === 'all' ? 'btn-primary' : 'btn-ghost'}`}

@@ -38,6 +38,14 @@ function CalendarContent(){
   const [duration, setDuration] = useState<number>(settings.default_duration_minutes || 60)
   const [showDayBreakdown, setShowDayBreakdown] = useState(false)
 
+  // Mobile-first View mode: 'agenda' (clean daily feed) vs 'grid' (full table)
+  const [viewMode, setViewMode] = useState<'agenda' | 'grid'>('agenda')
+  const [selectedDayIdx, setSelectedDayIdx] = useState<number>(() => {
+    const js = new Date().getDay()
+    return js === 6 ? 0 : js + 1 // today's TutorGrid day index
+  })
+  const [unscheduledExpanded, setUnscheduledExpanded] = useState(false)
+
   const sat=addDays(startOfWeek(week,{weekStartsOn:0}),-1)
   const dates=Array.from({length:7},(_,i)=>addDays(sat,i))
 
@@ -117,6 +125,70 @@ function CalendarContent(){
 
   function overlap(day:number,slot:string){
     return schedules.filter(s=>Number(s.day_of_week)===Number(day)&&s.start_time.slice(0,5)===slot.slice(0,5)&&s.active!==false).length>1
+  }
+
+  // Count classes for each day of the week (to show on day pills)
+  const classCountByDay = useMemo(() => {
+    return dates.map((d, di) => {
+      const dStr = format(d, 'yyyy-MM-dd')
+      const reg = schedules.filter(s => Number(s.day_of_week) === di && s.active !== false).filter(s => {
+        const ex = exFor(s.student_id, dStr, s.start_time)
+        return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
+      })
+      const ext = exceptions.filter(e => e.class_date === dStr && ['scheduled','completed'].includes(e.status))
+      return reg.length + ext.length
+    })
+  }, [dates, schedules, exceptions])
+
+  // All classes scheduled for the selected day in Agenda view
+  const selectedDateStr = format(dates[selectedDayIdx] || new Date(), 'yyyy-MM-dd')
+  const agendaDayClasses = useMemo(() => {
+    const reg = schedules
+      .filter(s => Number(s.day_of_week) === Number(selectedDayIdx) && s.active !== false)
+      .filter(s => {
+        const ex = exFor(s.student_id, selectedDateStr, s.start_time)
+        return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
+      })
+      .map(s => {
+        const ex = exFor(s.student_id, selectedDateStr, s.start_time)
+        return {
+          ...s,
+          student: s.student || students.find(st => st.id === s.student_id),
+          date: selectedDateStr,
+          exception: ex,
+          is_exception: false
+        }
+      })
+
+    const ext = exceptions
+      .filter(e => e.class_date === selectedDateStr && ['scheduled','completed','rescheduled'].includes(e.status))
+      .map(e => ({
+        id: e.id,
+        schedule_id: e.schedule_id,
+        student_id: e.student_id,
+        student: e.student || students.find(st => st.id === e.student_id),
+        start_time: e.start_time.slice(0,5),
+        duration_minutes: e.duration_minutes || 60,
+        day_of_week: selectedDayIdx,
+        date: e.class_date,
+        is_exception: true,
+        exception: e
+      }))
+
+    return [...reg, ...ext]
+      .filter(c => studentName(c.student_id).toLowerCase().includes(query.toLowerCase()))
+      .sort((a,b) => a.start_time.localeCompare(b.start_time))
+  }, [schedules, exceptions, selectedDayIdx, selectedDateStr, query, students])
+
+  function checkDayConflict(classItem: any) {
+    const startM = minutesFromTime(classItem.start_time)
+    const endM = startM + Number(classItem.duration_minutes || 60)
+    return agendaDayClasses.some(other => {
+      if (other.id === classItem.id && other.student_id === classItem.student_id) return false
+      const oStartM = minutesFromTime(other.start_time)
+      const oEndM = oStartM + Number(other.duration_minutes || 60)
+      return !(endM <= oStartM || startM >= oEndM)
+    })
   }
 
   function toggleDay(dayIndex: number){
@@ -281,112 +353,412 @@ function CalendarContent(){
       }
     />
 
-    {/* Unscheduled Students Alert Banner */}
+    {/* Unscheduled Students Alert Banner (Collapsible for Clean Mobile View) */}
     {unscheduledStudents.length > 0 && (
       <div style={{
         background:'#fff7ed',
         border:'1px solid #fdba74',
         borderRadius:14,
-        padding:'12px 16px',
-        marginBottom:16,
-        display:'flex',
-        alignItems:'center',
-        justifyContent:'space-between',
-        flexWrap:'wrap',
-        gap:10
+        padding:'10px 14px',
+        marginBottom:14
       }}>
-        <div style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#9a3412'}}>
-          <UserX size={18} style={{color:'#ea580c', flexShrink:0}}/>
-          <div>
-            <b>{unscheduledStudents.length} Students have no schedule set yet (শিডিউল বাকি আছে):</b>
-            <div style={{fontSize:12, color:'#c2410c'}}>
-              নিচের স্টুডেন্টের নামের উপর ক্লিক করে দ্রুত শিডিউল সেট করুন:
-            </div>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8}}>
+          <div style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#9a3412'}}>
+            <UserX size={18} style={{color:'#ea580c', flexShrink:0}}/>
+            <span><b>{unscheduledStudents.length} Students</b> have no weekly schedule set yet</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setUnscheduledExpanded(!unscheduledExpanded)}
+            style={{
+              background: '#fff',
+              border: '1px solid #fdba74',
+              color: '#ea580c',
+              borderRadius: 8,
+              padding: '4px 10px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            {unscheduledExpanded ? 'Hide ▲' : 'View Students ▼'}
+          </button>
         </div>
 
-        <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
-          {unscheduledStudents.map(st => (
-            <button
-              key={st.id}
-              type="button"
-              onClick={() => openAddModal(undefined, undefined, st.id)}
-              style={{
-                background:'#fff',
-                border:'1px solid #ea580c',
-                color:'#c2410c',
-                borderRadius:999,
-                padding:'5px 12px',
-                fontSize:12,
-                fontWeight:700,
-                cursor:'pointer',
-                display:'flex',
-                alignItems:'center',
-                gap:5,
-                boxShadow:'0 1px 3px rgba(234, 88, 12, 0.15)'
-              }}
-            >
-              ⚡ Set Schedule: <b>{st.name}</b>
-            </button>
-          ))}
-        </div>
+        {unscheduledExpanded && (
+          <div style={{display:'flex', gap:6, flexWrap:'wrap', marginTop:10, paddingTop:10, borderTop:'1px dashed #fed7aa'}}>
+            {unscheduledStudents.map(st => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => openAddModal(undefined, undefined, st.id)}
+                style={{
+                  background:'#fff',
+                  border:'1px solid #ea580c',
+                  color:'#c2410c',
+                  borderRadius:999,
+                  padding:'5px 12px',
+                  fontSize:12,
+                  fontWeight:700,
+                  cursor:'pointer',
+                  display:'flex',
+                  alignItems:'center',
+                  gap:5,
+                  boxShadow:'0 1px 3px rgba(234, 88, 12, 0.1)'
+                }}
+              >
+                ⚡ Set Schedule: <b>{st.name}</b>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )}
     
-    <div className="toolbar">
-      <div className="week-nav">
-        <button className="btn btn-ghost" onClick={()=>setWeek(subWeeks(week,1))}><ChevronLeft size={16}/></button>
-        <b>{format(dates[0],'d MMM')} – {format(dates[6],'d MMM yyyy')}</b>
-        <button className="btn btn-ghost" onClick={()=>setWeek(addWeeks(week,1))}><ChevronRight size={16}/></button>
+    {/* Navigation & View Mode Toolbar */}
+    <div className="toolbar" style={{justifyContent:'space-between', gap:10}}>
+      <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
+        <div className="week-nav">
+          <button className="btn btn-ghost" onClick={()=>setWeek(subWeeks(week,1))}><ChevronLeft size={16}/></button>
+          <b style={{fontSize:13}}>{format(dates[0],'d MMM')} – {format(dates[6],'d MMM')}</b>
+          <button className="btn btn-ghost" onClick={()=>setWeek(addWeeks(week,1))}><ChevronRight size={16}/></button>
+        </div>
+
+        {/* View Switcher: Day Agenda (Best on Mobile) vs Full Grid */}
+        <div style={{display:'inline-flex', background:'#e2e8f0', padding:3, borderRadius:10}}>
+          <button
+            type="button"
+            onClick={()=>setViewMode('agenda')}
+            style={{
+              border:'none',
+              background:viewMode==='agenda'?'#fff':'transparent',
+              color:viewMode==='agenda'?'#0f172a':'#64748b',
+              fontWeight:700,
+              padding:'6px 12px',
+              borderRadius:8,
+              fontSize:12,
+              cursor:'pointer',
+              display:'flex',
+              alignItems:'center',
+              gap:5,
+              boxShadow:viewMode==='agenda'?'0 1px 3px rgba(0,0,0,0.1)':'none'
+            }}
+          >
+            📋 Day Agenda
+          </button>
+          <button
+            type="button"
+            onClick={()=>setViewMode('grid')}
+            style={{
+              border:'none',
+              background:viewMode==='grid'?'#fff':'transparent',
+              color:viewMode==='grid'?'#0f172a':'#64748b',
+              fontWeight:700,
+              padding:'6px 12px',
+              borderRadius:8,
+              fontSize:12,
+              cursor:'pointer',
+              display:'flex',
+              alignItems:'center',
+              gap:5,
+              boxShadow:viewMode==='grid'?'0 1px 3px rgba(0,0,0,0.1)':'none'
+            }}
+          >
+            📅 Full Table
+          </button>
+        </div>
       </div>
-      <input className="input" style={{maxWidth:260}} placeholder="Search student…" value={query} onChange={e=>setQuery(e.target.value)}/>
-      {selected&&<span className="badge red">Selected: {studentName(selected.student_id)}</span>}
+
+      <div style={{display:'flex', alignItems:'center', gap:8, flex:1, minWidth:200, justifyContent:'flex-end'}}>
+        <input 
+          className="input" 
+          style={{maxWidth:240, padding:'7px 10px', fontSize:13}} 
+          placeholder="Search student…" 
+          value={query} 
+          onChange={e=>setQuery(e.target.value)}
+        />
+        {selected&&<span className="badge red" style={{cursor:'pointer'}} onClick={()=>setSelected(null)}>✕ {studentName(selected.student_id)}</span>}
+      </div>
     </div>
 
-    <div className="calendar-wrap">
-      <div className="calendar" style={{['--cols' as any]:slots.length}}>
-        <div className="cal-header">
-          <div className="cal-day">Day / Time</div>
-          {slots.map(t=><div className="cal-time" key={t}>{prettyTime(t)}</div>)}
+    {/* =========================================================================
+        MODE 1: DAY AGENDA VIEW (ULTRA-CLEAN, MOBILE-FIRST, ZERO HORIZONTAL CLUTTER)
+       ========================================================================= */}
+    {viewMode === 'agenda' && (
+      <div>
+        {/* Horizontal Day Selector Pills */}
+        <div className="mobile-day-pills">
+          {dates.map((d, di) => {
+            const isSelected = selectedDayIdx === di
+            const isCurrToday = format(d, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
+            const count = classCountByDay[di] || 0
+            return (
+              <button
+                key={di}
+                type="button"
+                className={`mobile-day-pill ${isSelected ? 'active' : ''}`}
+                onClick={() => setSelectedDayIdx(di)}
+              >
+                <div style={{fontSize:11, fontWeight:700, opacity:isSelected?1:0.7, textTransform:'uppercase'}}>
+                  {DAYS[di].slice(0,3)}
+                </div>
+                <div style={{fontSize:18, fontWeight:800, margin:'2px 0'}}>
+                  {format(d, 'd')}
+                </div>
+                <div style={{
+                  fontSize:10, 
+                  fontWeight:700, 
+                  borderRadius:999, 
+                  padding:'1px 6px',
+                  background: isSelected ? 'rgba(255,255,255,0.25)' : (count > 0 ? '#e0e7ff' : '#f1f5f9'),
+                  color: isSelected ? '#fff' : (count > 0 ? '#4338ca' : '#94a3b8'),
+                  display:'inline-block'
+                }}>
+                  {count > 0 ? `${count} class${count > 1 ? 'es' : ''}` : 'Off'}
+                </div>
+                {isCurrToday && (
+                  <div style={{fontSize:9, fontWeight:800, color:isSelected?'#fff':'#4f46e5', marginTop:2}}>
+                    ● TODAY
+                  </div>
+                )}
+              </button>
+            )
+          })}
         </div>
-        {DAYS.map((day,di)=>(
-          <div className="cal-row" key={day}>
-            <div className="cal-day">{day}<div className="sub">{format(dates[di],'d MMM')}</div></div>
-            {slots.map(slot=>{
-              const ev=eventsFor(di,slot,format(dates[di],'yyyy-MM-dd'))
+
+        {/* Selected Day Header */}
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', margin:'16px 0 12px', flexWrap:'wrap', gap:8}}>
+          <div>
+            <h2 style={{fontSize:18, fontWeight:800, margin:0, color:'#0f172a'}}>
+              {format(dates[selectedDayIdx], 'EEEE, d MMMM')}
+            </h2>
+            <div className="sub" style={{fontSize:12}}>
+              {agendaDayClasses.length === 0 ? 'No classes scheduled for today' : `${agendaDayClasses.length} tutoring class${agendaDayClasses.length > 1 ? 'es' : ''} scheduled`}
+            </div>
+          </div>
+
+          <button 
+            className="btn btn-soft" 
+            style={{padding:'7px 12px', fontSize:12, fontWeight:700}}
+            onClick={() => openAddModal(selectedDayIdx)}
+          >
+            <Plus size={14}/> Add Class for {DAYS[selectedDayIdx]}
+          </button>
+        </div>
+
+        {/* Classes List */}
+        {agendaDayClasses.length === 0 ? (
+          <div className="card" style={{textAlign:'center', padding:'40px 20px', background:'#fff'}}>
+            <div style={{fontSize:32, marginBottom:10}}>🎉</div>
+            <b style={{fontSize:16, display:'block', color:'#0f172a'}}>No Classes on {DAYS[selectedDayIdx]}</b>
+            <p style={{fontSize:13, color:'#64748b', maxWidth:360, margin:'6px auto 16px'}}>
+              You have no scheduled sessions on this day. Take a break or add a student session.
+            </p>
+            <button className="btn btn-primary" onClick={() => openAddModal(selectedDayIdx)}>
+              <Plus size={15}/> Schedule a Class
+            </button>
+          </div>
+        ) : (
+          <div style={{display:'flex', flexDirection:'column', gap:12}}>
+            {agendaDayClasses.map((c: any) => {
+              const conflict = checkDayConflict(c)
+              const studentColor = c.student?.color || '#4f46e5'
+              const startM = minutesFromTime(c.start_time)
+              const endM = startM + Number(c.duration_minutes || 60)
+              const endTimeStr = timeFromMinutes(endM)
+              const isSelected = selected?.id === c.id
+
               return (
-                <div 
-                  className="cal-cell" 
-                  key={slot}
-                  onDoubleClick={() => openAddModal(di, slot)}
-                  title="Double click to add a class at this time"
+                <div
+                  key={c.id}
+                  className="card"
+                  style={{
+                    borderLeft: `5px solid ${studentColor}`,
+                    background: '#fff',
+                    boxShadow: isSelected ? '0 0 0 2px #4f46e5, var(--shadow)' : 'var(--shadow)',
+                    transition: 'all 0.15s ease',
+                    position: 'relative'
+                  }}
                 >
-                  {ev.map((e: any)=>(
-                    <div 
-                      key={e.id} 
-                      className={'event '+(overlap(di,slot)?'conflict':'')} 
-                      style={{
-                        background:e.student?.color||students.find(s=>s.id===e.student_id)?.color||'#4f46e5',
-                        outline:selected?.id===e.id?'3px solid #000':undefined,
-                        boxShadow:selected?.id===e.id?'0 0 0 2px #fff, 0 6px 16px rgba(0,0,0,0.3)':undefined,
-                        opacity:selected&&selected.id!==e.id?0.5:1,
-                        cursor:'pointer',
-                        transform:selected?.id===e.id?'scale(1.02)':'none',
-                        transition:'all .15s ease'
-                      }} 
-                      onClick={x=>{x.stopPropagation();setSelected(selected?.id===e.id?null:{...e,date:format(dates[di],'yyyy-MM-dd')})}}
-                    >
-                      <div className="name">{studentName(e.student_id)}</div>
-                      <div className="time">{prettyTime(e.start_time)} · {e.duration_minutes}m</div>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:10}}>
+                    {/* Student Info */}
+                    <div style={{display:'flex', alignItems:'center', gap:12}}>
+                      <div style={{
+                        width:42, height:42, borderRadius:12,
+                        background: studentColor, color:'#fff',
+                        display:'grid', placeItems:'center',
+                        fontWeight:800, fontSize:16, flexShrink:0
+                      }}>
+                        {studentName(c.student_id).charAt(0)}
+                      </div>
+                      <div>
+                        <div style={{display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
+                          <b style={{fontSize:16, color:'#0f172a'}}>{studentName(c.student_id)}</b>
+                          {c.is_exception && <span className="badge" style={{background:'#fef3c7', color:'#92400e', fontSize:10}}>Rescheduled / Extra</span>}
+                          {c.exception?.status === 'completed' && <span className="badge green" style={{fontSize:10}}>✓ Present</span>}
+                          {c.exception?.status === 'absent' && <span className="badge red" style={{fontSize:10}}>✕ Absent</span>}
+                          {c.exception?.status === 'off' && <span className="badge" style={{background:'#f1f5f9', color:'#64748b', fontSize:10}}>⏸️ Off</span>}
+                        </div>
+                        <div style={{fontSize:12, color:'#64748b', marginTop:2}}>
+                          {c.student?.subject || 'Tutoring'} • {c.student?.phone || 'No phone'}
+                        </div>
+                      </div>
                     </div>
-                  ))}
+
+                    {/* Time Pill */}
+                    <div style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 10,
+                      padding: '6px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: '#1e293b'
+                    }}>
+                      <Clock size={14} color="#6366f1"/>
+                      <span>{prettyTime(c.start_time)} – {prettyTime(endTimeStr)}</span>
+                      <span style={{fontSize:11, color:'#64748b', fontWeight:500}}>({c.duration_minutes}m)</span>
+                    </div>
+                  </div>
+
+                  {/* Conflict Alert Banner if overlapping */}
+                  {conflict && (
+                    <div style={{
+                      marginTop: 10,
+                      background: '#fee2e2',
+                      border: '1px solid #fca5a5',
+                      borderRadius: 8,
+                      padding: '6px 10px',
+                      fontSize: 12,
+                      color: '#b91c1c',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}>
+                      <AlertTriangle size={14}/>
+                      <b>⚠️ Overlapping Time Conflict:</b> Another student is scheduled at this exact time!
+                    </div>
+                  )}
+
+                  {/* Action Buttons Directly on Card */}
+                  <div style={{display:'flex', gap:8, marginTop:14, paddingTop:12, borderTop:'1px solid #f1f5f9', flexWrap:'wrap'}}>
+                    <button
+                      type="button"
+                      className="btn btn-soft"
+                      style={{padding:'7px 12px', fontSize:12, fontWeight:700}}
+                      onClick={() => {
+                        setSelected({ ...c, date: selectedDateStr })
+                        openMove('temporary')
+                      }}
+                    >
+                      <Clock size={13}/> ১ দিনের টাইম চেঞ্জ
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{padding:'7px 12px', fontSize:12, fontWeight:700, color:'#4338ca'}}
+                      onClick={() => {
+                        setSelected({ ...c, date: selectedDateStr })
+                        openMove('permanent')
+                      }}
+                    >
+                      <RefreshCw size={13}/> স্থায়ী রুটিন চেঞ্জ
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{padding:'7px 10px', fontSize:12, color:'#64748b', marginLeft:'auto'}}
+                      onClick={async () => {
+                        await saveException({
+                          schedule_id: c.id,
+                          student_id: c.student_id,
+                          class_date: selectedDateStr,
+                          start_time: c.start_time.slice(0,5),
+                          duration_minutes: c.duration_minutes,
+                          status: 'off'
+                        })
+                      }}
+                    >
+                      ⏸️ Off Today
+                    </button>
+
+                    {!c.is_exception && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{padding:'7px 10px', fontSize:12, color:'#dc2626'}}
+                        onClick={async () => {
+                          if (confirm(`Remove ${studentName(c.student_id)} from ${DAYS[selectedDayIdx]} weekly routine?`)) {
+                            await deleteSchedule(c.id)
+                          }
+                        }}
+                      >
+                        <Trash2 size={13}/>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
-        ))}
+        )}
       </div>
-    </div>
+    )}
+
+    {/* =========================================================================
+        MODE 2: FULL 7-DAY DESKTOP GRID (SCROLLABLE TABLE VIEW)
+       ========================================================================= */}
+    {viewMode === 'grid' && (
+      <div className="calendar-wrap">
+        <div className="calendar" style={{['--cols' as any]:slots.length}}>
+          <div className="cal-header">
+            <div className="cal-day">Day / Time</div>
+            {slots.map(t=><div className="cal-time" key={t}>{prettyTime(t)}</div>)}
+          </div>
+          {DAYS.map((day,di)=>(
+            <div className="cal-row" key={day}>
+              <div className="cal-day">{day}<div className="sub">{format(dates[di],'d MMM')}</div></div>
+              {slots.map(slot=>{
+                const ev=eventsFor(di,slot,format(dates[di],'yyyy-MM-dd'))
+                return (
+                  <div 
+                    className="cal-cell" 
+                    key={slot}
+                    onDoubleClick={() => openAddModal(di, slot)}
+                    title="Double click to add a class at this time"
+                  >
+                    {ev.map((e: any)=>(
+                      <div 
+                        key={e.id} 
+                        className={'event '+(overlap(di,slot)?'conflict':'')} 
+                        style={{
+                          background:e.student?.color||students.find(s=>s.id===e.student_id)?.color||'#4f46e5',
+                          outline:selected?.id===e.id?'3px solid #000':undefined,
+                          boxShadow:selected?.id===e.id?'0 0 0 2px #fff, 0 6px 16px rgba(0,0,0,0.3)':undefined,
+                          opacity:selected&&selected.id!==e.id?0.5:1,
+                          cursor:'pointer',
+                          transform:selected?.id===e.id?'scale(1.02)':'none',
+                          transition:'all .15s ease'
+                        }} 
+                        onClick={x=>{x.stopPropagation();setSelected(selected?.id===e.id?null:{...e,date:format(dates[di],'yyyy-MM-dd')})}}
+                      >
+                        <div className="name">{studentName(e.student_id)}</div>
+                        <div className="time">{prettyTime(e.start_time)} · {e.duration_minutes}m</div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
 
     {/* Selected class action floating panel with direct time change */}
     {selected&&(
