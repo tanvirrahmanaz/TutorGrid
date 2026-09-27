@@ -5,7 +5,7 @@ import Topbar from '@/components/Topbar'
 import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS, prettyTime} from '@/lib/utils'
-import {format, addDays, subDays, parseISO, isToday, startOfMonth, endOfMonth} from 'date-fns'
+import {format, addDays, subDays, parseISO, isToday} from 'date-fns'
 import {
   CheckCircle2, XCircle, AlertTriangle, Clock, Calendar as CalIcon,
   ChevronLeft, ChevronRight, UserCheck, Plus, Trash2, Edit3, Filter
@@ -17,7 +17,7 @@ function getDayIndex(d: Date) {
   return js === 6 ? 0 : js + 1
 }
 
-export default function AttendancePage() {
+function AttendanceContent() {
   const {students, schedules, exceptions, saveException, deleteException} = useData()
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [studentFilter, setStudentFilter] = useState<string>('all')
@@ -33,7 +33,7 @@ export default function AttendancePage() {
   // Scheduled classes for selected date
   const scheduledForDate = useMemo(() => {
     return schedules
-      .filter(s => s.day_of_week === dayIdx && s.active !== false)
+      .filter(s => Number(s.day_of_week) === Number(dayIdx) && s.active !== false)
       .filter(s => studentFilter === 'all' || s.student_id === studentFilter)
       .sort((a,b) => a.start_time.localeCompare(b.start_time))
   }, [schedules, dayIdx, studentFilter])
@@ -155,7 +155,7 @@ export default function AttendancePage() {
   }
 
   return (
-    <ProtectedLayout>
+    <>
       <Topbar
         title="Attendance & Roll-Call"
         subtitle={`Daily attendance tracking · ${format(selectedDate, 'EEEE, d MMMM yyyy')}`}
@@ -576,6 +576,14 @@ export default function AttendancePage() {
           </form>
         </Modal>
       )}
+    </>
+  )
+}
+
+export default function Page(){
+  return (
+    <ProtectedLayout>
+      <AttendanceContent/>
     </ProtectedLayout>
   )
 }

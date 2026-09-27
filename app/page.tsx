@@ -13,7 +13,7 @@ function getDayIndex(d: Date) {
   return js === 6 ? 0 : js + 1
 }
 
-function Dashboard(){
+function DashboardContent(){
   const {students, schedules, tasks, payments, exceptions, saveException} = useData()
   const active = students.filter(s => !s.archived)
   
@@ -22,7 +22,7 @@ function Dashboard(){
   const todayKey = format(todayDate, 'yyyy-MM-dd')
 
   const todays = schedules
-    .filter(s => s.day_of_week === todayDayIdx && s.active !== false)
+    .filter(s => Number(s.day_of_week) === Number(todayDayIdx) && s.active !== false)
     .sort((a,b) => a.start_time.localeCompare(b.start_time))
 
   const pending = tasks.filter(t => t.status !== 'done')
@@ -48,7 +48,7 @@ function Dashboard(){
   }
 
   return (
-    <ProtectedLayout>
+    <>
       <Topbar
         title="Dashboard"
         subtitle={`${format(todayDate, 'EEEE, d MMMM yyyy')} · Tutoring command center`}
@@ -195,7 +195,8 @@ function Dashboard(){
                         fontSize:12,
                         background: isCompleted ? '#059669' : '#ecfdf5',
                         color: isCompleted ? '#fff' : '#047857',
-                        border: isCompleted ? '1px solid #059669' : '1px solid #a7f3d0'
+                        border: isCompleted ? '1px solid #059669' : '1px solid #a7f3d0',
+                        cursor:'pointer'
                       }}
                     >
                       <CheckCircle2 size={13} style={{display:'inline', marginRight:4, verticalAlign:-2}}/>
@@ -211,7 +212,8 @@ function Dashboard(){
                         fontSize:12,
                         background: isAbsent ? '#dc2626' : '#fff1f2',
                         color: isAbsent ? '#fff' : '#b91c1c',
-                        border: isAbsent ? '1px solid #dc2626' : '1px solid #fecaca'
+                        border: isAbsent ? '1px solid #dc2626' : '1px solid #fecaca',
+                        cursor:'pointer'
                       }}
                     >
                       <XCircle size={13} style={{display:'inline', marginRight:4, verticalAlign:-2}}/>
@@ -227,7 +229,8 @@ function Dashboard(){
                         fontSize:12,
                         background: isCancelled ? '#d97706' : '#fffbeb',
                         color: isCancelled ? '#fff' : '#b45309',
-                        border: isCancelled ? '1px solid #d97706' : '1px solid #fde68a'
+                        border: isCancelled ? '1px solid #d97706' : '1px solid #fde68a',
+                        cursor:'pointer'
                       }}
                     >
                       <AlertTriangle size={13} style={{display:'inline', marginRight:4, verticalAlign:-2}}/>
@@ -242,8 +245,14 @@ function Dashboard(){
           <div className="empty">No classes scheduled for today.</div>
         )}
       </div>
-    </ProtectedLayout>
+    </>
   )
 }
 
-export default Dashboard
+export default function Page(){
+  return (
+    <ProtectedLayout>
+      <DashboardContent/>
+    </ProtectedLayout>
+  )
+}
