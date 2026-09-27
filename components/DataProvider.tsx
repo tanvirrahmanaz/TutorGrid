@@ -15,6 +15,7 @@ type Ctx={
   saveStudent:(x:Partial<Student>)=>Promise<void>;
   archiveStudent:(id:string)=>Promise<void>;
   saveSchedule:(x:Partial<Schedule>&{student_id:string})=>Promise<void>;
+  saveSchedulesBulk:(items:Array<{student_id:string;day_of_week:number;start_time:string;duration_minutes:number}>)=>Promise<void>;
   deleteSchedule:(id:string)=>Promise<void>;
   saveException:(x:Partial<ScheduleException>&{student_id:string;class_date:string;start_time:string;duration_minutes:number;status:ScheduleException['status']})=>Promise<void>;
   deleteException:(id:string)=>Promise<void>;
@@ -112,10 +113,11 @@ export function DataProvider({children}:{children:React.ReactNode}){
       archived: x.archived || false
     } as Student
 
-    // Optimistically update local state immediately
-    const next = x.id ? students.map(s => s.id === x.id ? { ...s, ...newStudent } : s) : [...students, newStudent]
-    setStudents(next)
-    persist(localSnapshot({students:next}))
+    setStudents(prev => {
+      const next = x.id ? prev.map(s => s.id === x.id ? { ...s, ...newStudent } : s) : [...prev, newStudent]
+      persist(localSnapshot({students:next}))
+      return next
+    })
 
     if(supabase){
       try {
@@ -138,9 +140,11 @@ export function DataProvider({children}:{children:React.ReactNode}){
   }
 
   async function archiveStudent(id:string){
-    const next = students.map(s => s.id === id ? { ...s, archived: true } : s)
-    setStudents(next)
-    persist(localSnapshot({students:next}))
+    setStudents(prev => {
+      const next = prev.map(s => s.id === id ? { ...s, archived: true } : s)
+      persist(localSnapshot({students:next}))
+      return next
+    })
     if(supabase){
       try {
         await supabase.from('students').update({archived:true}).eq('id',id)
@@ -164,13 +168,13 @@ export function DataProvider({children}:{children:React.ReactNode}){
     }
     const newSchedule = { id: x.id || uid(), ...row, student } as Schedule
 
-    // Optimistically update local state immediately
-    const next = x.id 
-      ? schedules.map(s => s.id === x.id ? { ...s, ...row, student } as Schedule : s)
-      : [...schedules.filter(s => !(s.student_id === x.student_id && Number(s.day_of_week) === Number(row.day_of_week) && s.start_time.slice(0,5) === cleanTime)), newSchedule]
-    
-    setSchedules(next)
-    persist(localSnapshot({ schedules: next }))
+    setSchedules(prev => {
+      const next = x.id 
+        ? prev.map(s => s.id === x.id ? { ...s, ...row, student } as Schedule : s)
+        : [...prev.filter(s => !(s.student_id === x.student_id && Number(s.day_of_week) === Number(row.day_of_week) && s.start_time.slice(0,5) === cleanTime)), newSchedule]
+      persist(localSnapshot({ schedules: next }))
+      return next
+    })
 
     if(supabase){
       try {
@@ -183,10 +187,51 @@ export function DataProvider({children}:{children:React.ReactNode}){
     }
   }
 
+  async function saveSchedulesBulk(items: Array<{ student_id: string; day_of_week: number; start_time: string; duration_minutes: number }>) {
+    if (!items.length) return
+    const student = students.find(s => s.id === items[0].student_id)
+    
+    const newRows = items.map(x => ({
+      student_id: x.student_id,
+      day_of_week: Number(x.day_of_week),
+      start_time: (x.start_time || '07:00').slice(0,5),
+      duration_minutes: Number(x.duration_minutes || settings.default_duration_minutes || 60),
+      recurrence: 'weekly' as const,
+      active: true
+    }))
+
+    const newScheduleObjects = newRows.map(row => ({
+      id: uid(),
+      ...row,
+      student
+    })) as Schedule[]
+
+    setSchedules(prev => {
+      let filtered = prev
+      newRows.forEach(nr => {
+        filtered = filtered.filter(s => !(s.student_id === nr.student_id && Number(s.day_of_week) === nr.day_of_week && s.start_time.slice(0,5) === nr.start_time))
+      })
+      const next = [...filtered, ...newScheduleObjects]
+      persist(localSnapshot({ schedules: next }))
+      return next
+    })
+
+    if (supabase) {
+      try {
+        await supabase.from('schedules').insert(newRows)
+        await reload()
+      } catch (err) {
+        console.error('saveSchedulesBulk error:', err)
+      }
+    }
+  }
+
   async function deleteSchedule(id:string){
-    const next = schedules.filter(s => s.id !== id)
-    setSchedules(next)
-    persist(localSnapshot({schedules:next}))
+    setSchedules(prev => {
+      const next = prev.filter(s => s.id !== id)
+      persist(localSnapshot({schedules:next}))
+      return next
+    })
     if(supabase){
       try {
         await supabase.from('schedules').update({active:false}).eq('id',id)
@@ -212,13 +257,14 @@ export function DataProvider({children}:{children:React.ReactNode}){
       student: students.find(s => s.id === x.student_id)
     } as ScheduleException
 
-    // Optimistically update local state immediately
-    const next = [
-      ...exceptions.filter(e => !(e.student_id === x.student_id && e.class_date === x.class_date && e.start_time.slice(0,5) === cleanTime)),
-      exObj
-    ]
-    setExceptions(next)
-    persist(localSnapshot({exceptions:next}))
+    setExceptions(prev => {
+      const next = [
+        ...prev.filter(e => !(e.student_id === x.student_id && e.class_date === x.class_date && e.start_time.slice(0,5) === cleanTime)),
+        exObj
+      ]
+      persist(localSnapshot({exceptions:next}))
+      return next
+    })
 
     if(supabase){
       try {
@@ -241,9 +287,11 @@ export function DataProvider({children}:{children:React.ReactNode}){
   }
 
   async function deleteException(id:string){
-    const next = exceptions.filter(e => e.id !== id)
-    setExceptions(next)
-    persist(localSnapshot({exceptions:next}))
+    setExceptions(prev => {
+      const next = prev.filter(e => e.id !== id)
+      persist(localSnapshot({exceptions:next}))
+      return next
+    })
     if(supabase){
       try {
         await supabase.from('schedule_exceptions').delete().eq('id', id)
@@ -266,9 +314,11 @@ export function DataProvider({children}:{children:React.ReactNode}){
       note: x.note || null
     } as TaskItem
 
-    const next = x.id ? tasks.map(t => t.id === x.id ? { ...t, ...row } : t) : [...tasks, row]
-    setTasks(next)
-    persist(localSnapshot({tasks:next}))
+    setTasks(prev => {
+      const next = x.id ? prev.map(t => t.id === x.id ? { ...t, ...row } : t) : [...prev, row]
+      persist(localSnapshot({tasks:next}))
+      return next
+    })
 
     if(supabase){
       try {
@@ -293,9 +343,11 @@ export function DataProvider({children}:{children:React.ReactNode}){
       student
     } as Payment
 
-    const next = [row, ...payments]
-    setPayments(next)
-    persist(localSnapshot({payments:next}))
+    setPayments(prev => {
+      const next = [row, ...prev]
+      persist(localSnapshot({payments:next}))
+      return next
+    })
 
     if(supabase){
       try {
@@ -329,7 +381,7 @@ export function DataProvider({children}:{children:React.ReactNode}){
 
   const value=useMemo(()=>({
     students,schedules,exceptions,tasks,payments,settings,reload,
-    saveStudent,archiveStudent,saveSchedule,deleteSchedule,saveException,deleteException,saveTask,savePayment,saveSettings
+    saveStudent,archiveStudent,saveSchedule,saveSchedulesBulk,deleteSchedule,saveException,deleteException,saveTask,savePayment,saveSettings
   }),[students,schedules,exceptions,tasks,payments,settings])
 
   return <C.Provider value={value}>{children}</C.Provider>

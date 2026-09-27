@@ -15,8 +15,8 @@ const DAY_PRESETS = [
   { label: 'Everyday', days: [0, 1, 2, 3, 4, 5, 6] },
 ]
 
-function CalendarPage(){
-  const {students,schedules,exceptions,settings,saveSchedule,deleteSchedule,saveException}=useData()
+function CalendarContent(){
+  const {students,schedules,exceptions,settings,saveSchedule,saveSchedulesBulk,deleteSchedule,saveException}=useData()
   const [week,setWeek]=useState(new Date())
   const [modal,setModal]=useState(false)
   const [selected,setSelected]=useState<any>(null)
@@ -123,15 +123,14 @@ function CalendarPage(){
       return
     }
 
-    // Save for each selected day
-    for(const day of selectedDays){
-      await saveSchedule({
-        student_id: selectedStudentId,
-        day_of_week: Number(day),
-        start_time: startTime.slice(0,5),
-        duration_minutes: Number(duration)
-      })
-    }
+    const items = selectedDays.map(day => ({
+      student_id: selectedStudentId,
+      day_of_week: Number(day),
+      start_time: startTime.slice(0,5),
+      duration_minutes: Number(duration)
+    }))
+
+    await saveSchedulesBulk(items)
     setModal(false)
   }
 
@@ -432,4 +431,10 @@ function CalendarPage(){
   </>
 }
 
-export default function Page(){return <ProtectedLayout><CalendarPage/></ProtectedLayout>}
+export default function Page(){
+  return (
+    <ProtectedLayout>
+      <CalendarContent/>
+    </ProtectedLayout>
+  )
+}
