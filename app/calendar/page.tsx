@@ -45,6 +45,7 @@ function CalendarContent(){
     return js === 6 ? 0 : js + 1 // today's TutorGrid day index
   })
   const [unscheduledExpanded, setUnscheduledExpanded] = useState(false)
+  const [conflictsBannerExpanded, setConflictsBannerExpanded] = useState(false)
 
   const sat=addDays(startOfWeek(week,{weekStartsOn:0}),-1)
   const dates=Array.from({length:7},(_,i)=>addDays(sat,i))
@@ -180,16 +181,139 @@ function CalendarContent(){
       .sort((a,b) => a.start_time.localeCompare(b.start_time))
   }, [schedules, exceptions, selectedDayIdx, selectedDateStr, query, students])
 
-  function checkDayConflict(classItem: any) {
+  // Return the specific classes that overlap with this class item
+  function getDayConflicts(classItem: any) {
     const startM = minutesFromTime(classItem.start_time)
     const endM = startM + Number(classItem.duration_minutes || 60)
-    return agendaDayClasses.some(other => {
+    return agendaDayClasses.filter(other => {
       if (other.id === classItem.id && other.student_id === classItem.student_id) return false
       const oStartM = minutesFromTime(other.start_time)
       const oEndM = oStartM + Number(other.duration_minutes || 60)
       return !(endM <= oStartM || startM >= oEndM)
     })
   }
+
+  // Find the next available non-overlapping free time slots on this day for quick resolution
+  function getAvailableFreeSlots(classItem: any, limit = 3): string[] {
+    const durationMin = Number(classItem.duration_minutes || 60)
+    const dayStartM = minutesFromTime(settings.day_start || '07:00')
+    const dayEndM = minutesFromTime(settings.day_end || '22:00')
+    const step = 30
+    const free: string[] = []
+
+    for (let m = dayStartM; m + durationMin <= dayEndM; m += step) {
+      const candTime = timeFromMinutes(m)
+      if (candTime === classItem.start_time.slice(0, 5)) continue
+
+      const candEnd = m + durationMin
+      const hasOverlap = agendaDayClasses.some(other => {
+        if (other.id === classItem.id && other.student_id === classItem.student_id) return false
+        const oStart = minutesFromTime(other.start_time)
+        const oEnd = oStart + Number(other.duration_minutes || 60)
+        return !(candEnd <= oStart || m >= oEnd)
+      })
+
+      if (!hasOverlap) {
+        free.push(candTime)
+        if (free.length >= limit) break
+      }
+    }
+    return free
+  }
+
+  // 1-Click quick resolution: Move a conflicting class to an available free slot
+  async function quickMoveToSlot(classItem: any, newStartTime: string, isPermanent = false) {
+    if (isPermanent || !classItem.is_exception) {
+      await saveSchedule({
+        id: classItem.is_exception ? undefined : classItem.id,
+        student_id: classItem.student_id,
+        day_of_week: Number(classItem.day_of_week ?? selectedDayIdx),
+        start_time: newStartTime.slice(0, 5),
+        duration_minutes: Number(classItem.duration_minutes || 60)
+      })
+    } else {
+      await saveException({
+        schedule_id: classItem.schedule_id,
+        student_id: classItem.student_id,
+        class_date: classItem.date,
+        start_time: newStartTime.slice(0, 5),
+        duration_minutes: Number(classItem.duration_minutes || 60),
+        status: 'scheduled',
+        original_date: classItem.date
+      })
+    }
+  }
+
+  // Find all conflicting classes across the entire 7 days of the active week
+  const weekConflictsList = useMemo(() => {
+    const list: Array<{
+      dayIndex: number;
+      dayName: string;
+      dateStr: string;
+      student1: string;
+      student2: string;
+      time1: string;
+      time2: string;
+      class1: any;
+      class2: any;
+    }> = []
+
+    dates.forEach((d, di) => {
+      const dStr = format(d, 'yyyy-MM-dd')
+      const reg = schedules
+        .filter(s => Number(s.day_of_week) === di && s.active !== false)
+        .filter(s => {
+          const ex = exFor(s.student_id, dStr, s.start_time)
+          return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
+        })
+        .map(s => ({
+          ...s,
+          date: dStr,
+          is_exception: false
+        }))
+
+      const ext = exceptions
+        .filter(e => e.class_date === dStr && ['scheduled','completed','rescheduled'].includes(e.status))
+        .map(e => ({
+          id: e.id,
+          schedule_id: e.schedule_id,
+          student_id: e.student_id,
+          start_time: e.start_time.slice(0,5),
+          duration_minutes: e.duration_minutes || 60,
+          day_of_week: di,
+          date: e.class_date,
+          is_exception: true
+        }))
+
+      const allClasses = [...reg, ...ext]
+
+      for (let i = 0; i < allClasses.length; i++) {
+        for (let j = i + 1; j < allClasses.length; j++) {
+          const c1 = allClasses[i]
+          const c2 = allClasses[j]
+          const s1 = minutesFromTime(c1.start_time)
+          const e1 = s1 + Number(c1.duration_minutes || 60)
+          const s2 = minutesFromTime(c2.start_time)
+          const e2 = s2 + Number(c2.duration_minutes || 60)
+
+          if (!(e1 <= s2 || s1 >= e2)) {
+            list.push({
+              dayIndex: di,
+              dayName: DAYS[di],
+              dateStr: dStr,
+              student1: studentName(c1.student_id),
+              student2: studentName(c2.student_id),
+              time1: `${prettyTime(c1.start_time)} (${c1.duration_minutes}m)`,
+              time2: `${prettyTime(c2.start_time)} (${c2.duration_minutes}m)`,
+              class1: c1,
+              class2: c2
+            })
+          }
+        }
+      }
+    })
+    return list
+  }, [dates, schedules, exceptions, students])
 
   function toggleDay(dayIndex: number){
     setSelectedDays(prev => 
@@ -352,6 +476,93 @@ function CalendarContent(){
         </button>
       }
     />
+
+    {/* Weekly Conflicts Alert Banner */}
+    {weekConflictsList.length > 0 && (
+      <div style={{
+        background:'#fff1f2',
+        border:'1px solid #fecdd3',
+        borderRadius:14,
+        padding:'12px 14px',
+        marginBottom:14,
+        boxShadow:'0 2px 8px rgba(225, 29, 72, 0.08)'
+      }}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8}}>
+          <div style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'#9f1239'}}>
+            <AlertTriangle size={18} style={{color:'#e11d48', flexShrink:0}}/>
+            <span>
+              <b>⚠️ {weekConflictsList.length} টি ক্লাসে টাইমিং কনফ্লিক্ট (ওভারল্যাপ) রয়েছে!</b> একাধিক ছাত্রছাত্রীর সময় একসাথে মিলে গেছে।
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConflictsBannerExpanded(!conflictsBannerExpanded)}
+            style={{
+              background: '#fff',
+              border: '1px solid #e11d48',
+              color: '#be123c',
+              borderRadius: 8,
+              padding: '4px 10px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            {conflictsBannerExpanded ? 'Hide ▲' : 'View Conflicts & Fix ▼'}
+          </button>
+        </div>
+
+        {conflictsBannerExpanded && (
+          <div style={{display:'flex', flexDirection:'column', gap:8, marginTop:10, paddingTop:10, borderTop:'1px dashed #fecdd3'}}>
+            {weekConflictsList.map((item, idx) => (
+              <div 
+                key={idx} 
+                style={{
+                  background: '#fff', 
+                  border: '1px solid #fecdd3', 
+                  borderRadius: 10, 
+                  padding: '9px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 8
+                }}
+              >
+                <div>
+                  <div style={{fontSize:13, color:'#881337'}}>
+                    <b>{item.dayName} ({item.dateStr}):</b> <b>{item.student1}</b> এবং <b>{item.student2}</b> দুজনের ক্লাস ওভারল্যাপ হয়েছে!
+                  </div>
+                  <div style={{fontSize:11, color:'#e11d48', marginTop:2}}>
+                    সময়: {item.student1} [{item.time1}] ↔ {item.student2} [{item.time2}]
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedDayIdx(item.dayIndex)
+                    setViewMode('agenda')
+                  }}
+                  style={{
+                    background: '#be123c',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '5px 12px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔍 এই দিনে গিয়ে সমাধান করুন
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
 
     {/* Unscheduled Students Alert Banner (Collapsible for Clean Mobile View) */}
     {unscheduledStudents.length > 0 && (
@@ -561,7 +772,8 @@ function CalendarContent(){
         ) : (
           <div style={{display:'flex', flexDirection:'column', gap:12}}>
             {agendaDayClasses.map((c: any) => {
-              const conflict = checkDayConflict(c)
+              const conflicts = getDayConflicts(c)
+              const freeSlots = conflicts.length > 0 ? getAvailableFreeSlots(c, 3) : []
               const studentColor = c.student?.color || '#4f46e5'
               const startM = minutesFromTime(c.start_time)
               const endM = startM + Number(c.duration_minutes || 60)
@@ -624,27 +836,120 @@ function CalendarContent(){
                     </div>
                   </div>
 
-                  {/* Conflict Alert Banner if overlapping */}
-                  {conflict && (
+                  {/* Detailed Conflict Alert Banner */}
+                  {conflicts.length > 0 && (
                     <div style={{
-                      marginTop: 10,
-                      background: '#fee2e2',
-                      border: '1px solid #fca5a5',
-                      borderRadius: 8,
-                      padding: '6px 10px',
-                      fontSize: 12,
-                      color: '#b91c1c',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
+                      marginTop: 12,
+                      background: '#fff1f2',
+                      border: '1px solid #fecdd3',
+                      borderRadius: 12,
+                      padding: '12px 14px',
+                      color: '#881337'
                     }}>
-                      <AlertTriangle size={14}/>
-                      <b>⚠️ Overlapping Time Conflict:</b> Another student is scheduled at this exact time!
+                      <div style={{display:'flex', alignItems:'flex-start', gap:10}}>
+                        <AlertTriangle size={18} style={{color:'#e11d48', flexShrink:0, marginTop:1}}/>
+                        <div style={{flex:1}}>
+                          <b style={{fontSize:13, color:'#9f1239'}}>
+                            ⚠️ টাইমিং কনফ্লিক্ট! (Time Conflict Detected)
+                          </b>
+                          <div style={{fontSize:12, marginTop:4, color:'#4c0519', lineHeight:1.5}}>
+                            কার কার সাথে সময় মিলে গেছে:
+                            <div style={{display:'flex', flexDirection:'column', gap:4, marginTop:4}}>
+                              {conflicts.map(other => {
+                                const oStart = minutesFromTime(other.start_time)
+                                const oEnd = oStart + Number(other.duration_minutes || 60)
+                                return (
+                                  <div key={other.id} style={{padding:'4px 8px', background:'rgba(255,255,255,0.85)', borderRadius:6, border:'1px solid #fecdd3', display:'inline-block'}}>
+                                    👉 <b>{studentName(other.student_id)}</b> ({prettyTime(other.start_time)} – {prettyTime(timeFromMinutes(oEnd))}, {other.duration_minutes}m)
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Actionable Ways to Solve the Conflict */}
+                          <div style={{marginTop:10, paddingTop:8, borderTop:'1px dashed #fecdd3'}}>
+                            <div style={{fontSize:11, fontWeight:700, textTransform:'uppercase', color:'#be123c', marginBottom:6}}>
+                              💡 সমাধান করার উপায় (Quick Fix Solutions):
+                            </div>
+
+                            <div style={{display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}}>
+                              {freeSlots.length > 0 && (
+                                <div style={{display:'flex', alignItems:'center', gap:5, flexWrap:'wrap'}}>
+                                  <span style={{fontSize:11, fontWeight:600, color:'#4c0519'}}>খালি স্লটে সরান:</span>
+                                  {freeSlots.map(slot => (
+                                    <button
+                                      key={slot}
+                                      type="button"
+                                      onClick={async () => {
+                                        await quickMoveToSlot(c, slot, true)
+                                      }}
+                                      style={{
+                                        background: '#fff',
+                                        border: '1px solid #be123c',
+                                        color: '#be123c',
+                                        borderRadius: 6,
+                                        padding: '4px 10px',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: 'pointer'
+                                      }}
+                                      title={`Move ${studentName(c.student_id)} to ${prettyTime(slot)}`}
+                                    >
+                                      ⚡ {prettyTime(slot)} এ দিন
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelected({ ...c, date: selectedDateStr })
+                                  openMove('temporary')
+                                }}
+                                style={{
+                                  background: '#be123c',
+                                  border: 'none',
+                                  color: '#fff',
+                                  borderRadius: 6,
+                                  padding: '5px 10px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✏️ ১ দিনের সময় পরিবর্তন
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelected({ ...c, date: selectedDateStr })
+                                  openMove('permanent')
+                                }}
+                                style={{
+                                  background: '#fff',
+                                  border: '1px solid #be123c',
+                                  color: '#be123c',
+                                  borderRadius: 6,
+                                  padding: '5px 10px',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                🔄 স্থায়ী রুটিন পরিবর্তন
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {/* Action Buttons Directly on Card */}
-                  <div style={{display:'flex', gap:8, marginTop:14, paddingTop:12, borderTop:'1px solid #f1f5f9', flexWrap:'wrap'}}>
+                  <div style={{display:'flex', gap:8, marginTop:14, paddingTop:12, borderTop:'1px solid #f1f5f9', flexWrap:'wrap', alignItems:'center'}}>
                     <button
                       type="button"
                       className="btn btn-soft"
@@ -653,6 +958,7 @@ function CalendarContent(){
                         setSelected({ ...c, date: selectedDateStr })
                         openMove('temporary')
                       }}
+                      title="Change time for this specific day"
                     >
                       <Clock size={13}/> ১ দিনের টাইম চেঞ্জ
                     </button>
@@ -665,6 +971,7 @@ function CalendarContent(){
                         setSelected({ ...c, date: selectedDateStr })
                         openMove('permanent')
                       }}
+                      title="Permanently update weekly routine"
                     >
                       <RefreshCw size={13}/> স্থায়ী রুটিন চেঞ্জ
                     </button>
@@ -672,7 +979,7 @@ function CalendarContent(){
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      style={{padding:'7px 10px', fontSize:12, color:'#64748b', marginLeft:'auto'}}
+                      style={{padding:'7px 10px', fontSize:12, color:'#64748b'}}
                       onClick={async () => {
                         await saveException({
                           schedule_id: c.id,
@@ -684,23 +991,36 @@ function CalendarContent(){
                         })
                       }}
                     >
-                      ⏸️ Off Today
+                      ⏸️ আজকের ক্লাস অফ
                     </button>
 
-                    {!c.is_exception && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{padding:'7px 10px', fontSize:12, color:'#dc2626'}}
-                        onClick={async () => {
-                          if (confirm(`Remove ${studentName(c.student_id)} from ${DAYS[selectedDayIdx]} weekly routine?`)) {
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{
+                        padding:'7px 12px',
+                        fontSize:12,
+                        color:'#dc2626',
+                        border:'1px solid #fecaca',
+                        background:'#fff5f5',
+                        marginLeft:'auto'
+                      }}
+                      onClick={async () => {
+                        const sName = studentName(c.student_id)
+                        if (c.is_exception) {
+                          if (confirm(`Remove this extra/rescheduled class for ${sName}?`)) {
+                            await deleteException(c.id)
+                          }
+                        } else {
+                          if (confirm(`Are you sure you want to permanently delete ${sName}'s weekly schedule on ${DAYS[selectedDayIdx]}?`)) {
                             await deleteSchedule(c.id)
                           }
-                        }}
-                      >
-                        <Trash2 size={13}/>
-                      </button>
-                    )}
+                        }
+                      }}
+                      title="Delete this schedule"
+                    >
+                      <Trash2 size={13}/> ডিলিট
+                    </button>
                   </div>
                 </div>
               )
