@@ -14,18 +14,20 @@ function CalendarPage(){
  const sat=addDays(startOfWeek(week,{weekStartsOn:0}),-1)
  const dates=Array.from({length:7},(_,i)=>addDays(sat,i))
  const slots=useMemo(()=>{
-  const allMins:number[]=[]
+  if(!schedules.length){
+    const a=[]
+    for(let m=minutesFromTime(settings.day_start);m<minutesFromTime(settings.day_end);m+=settings.interval_minutes)
+      a.push(timeFromMinutes(m))
+    return a
+  }
+  const used=new Set<string>()
   schedules.forEach(s=>{
     const start=minutesFromTime(s.start_time)
-    allMins.push(start, start+s.duration_minutes)
+    const end=start+s.duration_minutes
+    const interval=settings.interval_minutes||30
+    for(let m=start;m<end;m+=interval)used.add(timeFromMinutes(m))
   })
-  const interval=settings.interval_minutes||30
-  const buffer=interval
-  const rangeStart=allMins.length?Math.max(0,Math.min(...allMins)-buffer):minutesFromTime(settings.day_start)
-  const rangeEnd=allMins.length?Math.min(1440,Math.max(...allMins)+buffer):minutesFromTime(settings.day_end)
-  const a=[]
-  for(let m=rangeStart;m<rangeEnd;m+=interval)a.push(timeFromMinutes(m))
-  return a
+  return Array.from(used).sort()
  },[settings,schedules])
  function studentName(id:string){return students.find(s=>s.id===id)?.name||'Student'}
  function exFor(student_id:string,date:string,start:string){return exceptions.find(e=>e.student_id===student_id&&e.class_date===date&&e.start_time.slice(0,5)===start.slice(0,5))}
