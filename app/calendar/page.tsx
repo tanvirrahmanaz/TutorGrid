@@ -47,34 +47,58 @@ function CalendarPage(){
 
   // Only show time slots that have at least one class
   const slots=useMemo(()=>{
-    if(!schedules.length){
+    const used=new Set<string>()
+    schedules.filter(s => s.active !== false).forEach(s=>{
+      if (s.start_time) used.add(s.start_time.slice(0,5))
+    })
+    exceptions.forEach(e=>{
+      if (e.start_time) used.add(e.start_time.slice(0,5))
+    })
+    if(!used.size){
       const a:string[]=[]
-      for(let m=minutesFromTime(settings.day_start);m<minutesFromTime(settings.day_end);m+=settings.interval_minutes)
+      for(let m=minutesFromTime(settings.day_start||'07:00');m<minutesFromTime(settings.day_end||'22:00');m+=(settings.interval_minutes||60))
         a.push(timeFromMinutes(m))
       return a
     }
-    const used=new Set<string>()
-    schedules.forEach(s=>{
-      const start=minutesFromTime(s.start_time)
-      const end=start+s.duration_minutes
-      const interval=settings.interval_minutes||30
-      for(let m=start;m<end;m+=interval)used.add(timeFromMinutes(m))
-    })
     return Array.from(used).sort()
-  },[settings,schedules])
+  },[settings,schedules,exceptions])
 
   function studentName(id:string){return students.find(s=>s.id===id)?.name||'Student'}
+
   function exFor(student_id:string,date:string,start:string){
     return exceptions.find(e=>e.student_id===student_id&&e.class_date===date&&e.start_time.slice(0,5)===start.slice(0,5))
   }
+
   function eventsFor(day:number,slot:string,date:string){
-    return schedules
-      .filter(s=>s.day_of_week===day&&s.start_time.slice(0,5)===slot&&studentName(s.student_id).toLowerCase().includes(query.toLowerCase()))
-      .filter(s=>{const ex=exFor(s.student_id,date,slot);return !ex||!['off','cancelled','rescheduled','missed'].includes(ex.status)})
-      .map(s=>({...s,date}))
+    const cleanSlot = slot.slice(0,5)
+    
+    // Regular weekly schedules
+    const regular = schedules
+      .filter(s => Number(s.day_of_week) === Number(day) && s.start_time.slice(0,5) === cleanSlot && s.active !== false && studentName(s.student_id).toLowerCase().includes(query.toLowerCase()))
+      .filter(s => {
+        const ex = exFor(s.student_id, date, cleanSlot)
+        return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
+      })
+      .map(s => ({...s, date}))
+
+    // Rescheduled or extra classes scheduled for this date & slot
+    const extras = exceptions
+      .filter(e => e.class_date === date && e.start_time.slice(0,5) === cleanSlot && ['scheduled','completed'].includes(e.status) && studentName(e.student_id).toLowerCase().includes(query.toLowerCase()))
+      .map(e => ({
+        id: e.id,
+        student_id: e.student_id,
+        start_time: e.start_time.slice(0,5),
+        duration_minutes: e.duration_minutes || 60,
+        day_of_week: day,
+        date: e.class_date,
+        is_exception: true
+      }))
+
+    return [...regular, ...extras]
   }
+
   function overlap(day:number,slot:string){
-    return schedules.filter(s=>s.day_of_week===day&&s.start_time.slice(0,5)===slot).length>1
+    return schedules.filter(s=>Number(s.day_of_week)===Number(day)&&s.start_time.slice(0,5)===slot.slice(0,5)&&s.active!==false).length>1
   }
 
   function toggleDay(dayIndex: number){
@@ -98,9 +122,9 @@ function CalendarPage(){
     for(const day of selectedDays){
       await saveSchedule({
         student_id: selectedStudentId,
-        day_of_week: day,
-        start_time: startTime,
-        duration_minutes: duration
+        day_of_week: Number(day),
+        start_time: startTime.slice(0,5),
+        duration_minutes: Number(duration)
       })
     }
     setModal(false)
@@ -120,7 +144,7 @@ function CalendarPage(){
     await saveException({
       student_id:selected.student_id,
       class_date:moveDate,
-      start_time:moveTime,
+      start_time:moveTime.slice(0,5),
       duration_minutes:selected.duration_minutes,
       status:'scheduled',
       original_date:selected.date

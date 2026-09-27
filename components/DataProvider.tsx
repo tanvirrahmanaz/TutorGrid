@@ -101,51 +101,99 @@ export function DataProvider({children}:{children:React.ReactNode}){
   useEffect(()=>{reload()},[])
 
   async function saveStudent(x:Partial<Student>){
+    const newStudent = {
+      id: x.id || uid(),
+      name: x.name || 'Student',
+      subject: x.subject || '',
+      color: x.color || '#4f46e5',
+      phone: x.phone || null,
+      notes: x.notes || '',
+      monthly_fee: Number(x.monthly_fee || 0),
+      archived: x.archived || false
+    } as Student
+
+    // Optimistically update local state immediately
+    const next = x.id ? students.map(s => s.id === x.id ? { ...s, ...newStudent } : s) : [...students, newStudent]
+    setStudents(next)
+    persist(localSnapshot({students:next}))
+
     if(supabase){
-      const row={name:x.name,subject:x.subject||'',color:x.color||'#4f46e5',phone:x.phone||null,notes:x.notes||null,monthly_fee:x.monthly_fee||0,archived:x.archived||false}
-      if(x.id) await supabase.from('students').update(row).eq('id',x.id)
-      else await supabase.from('students').insert(row)
-      await reload()
-    }else{
-      const next=x.id?students.map(s=>s.id===x.id?{...s,...x}:s):[...students,{id:uid(),name:x.name||'Student',subject:x.subject||'',color:x.color||'#4f46e5',archived:false,monthly_fee:x.monthly_fee||0,notes:x.notes||''}]
-      setStudents(next)
-      persist(localSnapshot({students:next}))
+      try {
+        const row = {
+          name: newStudent.name,
+          subject: newStudent.subject,
+          color: newStudent.color,
+          phone: newStudent.phone,
+          notes: newStudent.notes,
+          monthly_fee: newStudent.monthly_fee,
+          archived: newStudent.archived
+        }
+        if(x.id) await supabase.from('students').update(row).eq('id',x.id)
+        else await supabase.from('students').insert(row)
+        await reload()
+      } catch(err) {
+        console.error('saveStudent error:', err)
+      }
     }
   }
 
   async function archiveStudent(id:string){
+    const next = students.map(s => s.id === id ? { ...s, archived: true } : s)
+    setStudents(next)
+    persist(localSnapshot({students:next}))
     if(supabase){
-      await supabase.from('students').update({archived:true}).eq('id',id)
-      await reload()
-    }else{
-      const next=students.map(s=>s.id===id?{...s,archived:true}:s)
-      setStudents(next)
-      persist(localSnapshot({students:next}))
+      try {
+        await supabase.from('students').update({archived:true}).eq('id',id)
+        await reload()
+      } catch(err) {
+        console.error('archiveStudent error:', err)
+      }
     }
   }
 
   async function saveSchedule(x:Partial<Schedule>&{student_id:string}){
-    const row={student_id:x.student_id,day_of_week:x.day_of_week??0,start_time:x.start_time||'07:00',duration_minutes:x.duration_minutes||settings.default_duration_minutes,recurrence:'weekly' as const,active:x.active??true}
+    const student = students.find(s => s.id === x.student_id)
+    const cleanTime = (x.start_time || '07:00').slice(0,5)
+    const row = {
+      student_id: x.student_id,
+      day_of_week: Number(x.day_of_week ?? 0),
+      start_time: cleanTime,
+      duration_minutes: Number(x.duration_minutes || settings.default_duration_minutes || 60),
+      recurrence: 'weekly' as const,
+      active: true
+    }
+    const newSchedule = { id: x.id || uid(), ...row, student } as Schedule
+
+    // Optimistically update local state immediately
+    const next = x.id 
+      ? schedules.map(s => s.id === x.id ? { ...s, ...row, student } as Schedule : s)
+      : [...schedules.filter(s => !(s.student_id === x.student_id && Number(s.day_of_week) === Number(row.day_of_week) && s.start_time.slice(0,5) === cleanTime)), newSchedule]
+    
+    setSchedules(next)
+    persist(localSnapshot({ schedules: next }))
+
     if(supabase){
-      if(x.id) await supabase.from('schedules').update(row).eq('id',x.id)
-      else await supabase.from('schedules').insert(row)
-      await reload()
-    }else{
-      const student=students.find(s=>s.id===x.student_id)
-      const next=x.id?schedules.map(s=>s.id===x.id?{...s,...row,student} as Schedule:s):[...schedules,{id:uid(),...row,student} as Schedule]
-      setSchedules(next)
-      persist(localSnapshot({schedules:next}))
+      try {
+        if(x.id) await supabase.from('schedules').update(row).eq('id',x.id)
+        else await supabase.from('schedules').insert(row)
+        await reload()
+      } catch(err) {
+        console.error('saveSchedule error:', err)
+      }
     }
   }
 
   async function deleteSchedule(id:string){
+    const next = schedules.filter(s => s.id !== id)
+    setSchedules(next)
+    persist(localSnapshot({schedules:next}))
     if(supabase){
-      await supabase.from('schedules').update({active:false}).eq('id',id)
-      await reload()
-    }else{
-      const next=schedules.filter(s=>s.id!==id)
-      setSchedules(next)
-      persist(localSnapshot({schedules:next}))
+      try {
+        await supabase.from('schedules').update({active:false}).eq('id',id)
+        await reload()
+      } catch(err) {
+        console.error('deleteSchedule error:', err)
+      }
     }
   }
 
@@ -157,7 +205,7 @@ export function DataProvider({children}:{children:React.ReactNode}){
       student_id: x.student_id,
       class_date: x.class_date,
       start_time: cleanTime,
-      duration_minutes: x.duration_minutes || 60,
+      duration_minutes: Number(x.duration_minutes || 60),
       status: x.status,
       original_date: x.original_date || null,
       note: x.note || null,
@@ -179,7 +227,7 @@ export function DataProvider({children}:{children:React.ReactNode}){
           student_id: x.student_id,
           class_date: x.class_date,
           start_time: cleanTime,
-          duration_minutes: x.duration_minutes || 60,
+          duration_minutes: Number(x.duration_minutes || 60),
           status: x.status,
           original_date: x.original_date || null,
           note: x.note || null
@@ -207,39 +255,75 @@ export function DataProvider({children}:{children:React.ReactNode}){
   }
 
   async function saveTask(x:Partial<TaskItem>&{title:string}){
-    const row={title:x.title,student_id:x.student_id||null,class_date:x.class_date||null,due_at:x.due_at||null,priority:x.priority||'medium',status:x.status||'todo',note:x.note||null}
+    const row={
+      id: x.id || uid(),
+      title: x.title,
+      student_id: x.student_id || null,
+      class_date: x.class_date || null,
+      due_at: x.due_at || null,
+      priority: x.priority || 'medium',
+      status: x.status || 'todo',
+      note: x.note || null
+    } as TaskItem
+
+    const next = x.id ? tasks.map(t => t.id === x.id ? { ...t, ...row } : t) : [...tasks, row]
+    setTasks(next)
+    persist(localSnapshot({tasks:next}))
+
     if(supabase){
-      if(x.id) await supabase.from('tasks').update(row).eq('id',x.id)
-      else await supabase.from('tasks').insert(row)
-      await reload()
-    }else{
-      const next=x.id?tasks.map(t=>t.id===x.id?{...t,...row}:t):[...tasks,{id:uid(),...row} as TaskItem]
-      setTasks(next)
-      persist(localSnapshot({tasks:next}))
+      try {
+        if(x.id) await supabase.from('tasks').update(row).eq('id',x.id)
+        else await supabase.from('tasks').insert(row)
+        await reload()
+      } catch(err) {
+        console.error('saveTask error:', err)
+      }
     }
   }
 
   async function savePayment(x:Partial<Payment>&{student_id:string;month_key:string;amount:number}){
-    const row={student_id:x.student_id,month_key:x.month_key,amount:x.amount,note:x.note||null,paid_at:x.paid_at||new Date().toISOString()}
+    const student = students.find(s => s.id === x.student_id)
+    const row = {
+      id: x.id || uid(),
+      student_id: x.student_id,
+      month_key: x.month_key,
+      amount: Number(x.amount),
+      note: x.note || null,
+      paid_at: x.paid_at || new Date().toISOString(),
+      student
+    } as Payment
+
+    const next = [row, ...payments]
+    setPayments(next)
+    persist(localSnapshot({payments:next}))
+
     if(supabase){
-      await supabase.from('payments').insert(row)
-      await reload()
-    }else{
-      const student=students.find(s=>s.id===x.student_id)
-      const next=[{id:uid(),...row,student} as Payment,...payments]
-      setPayments(next)
-      persist(localSnapshot({payments:next}))
+      try {
+        await supabase.from('payments').insert({
+          student_id: row.student_id,
+          month_key: row.month_key,
+          amount: row.amount,
+          note: row.note,
+          paid_at: row.paid_at
+        })
+        await reload()
+      } catch(err) {
+        console.error('savePayment error:', err)
+      }
     }
   }
 
   async function saveSettings(x:Partial<Settings>){
     const row={...settings,...x}
+    setSettings(row)
+    persist(localSnapshot({settings:row}))
     if(supabase){
-      await supabase.from('app_settings').upsert(row)
-      await reload()
-    }else{
-      setSettings(row)
-      persist(localSnapshot({settings:row}))
+      try {
+        await supabase.from('app_settings').upsert(row)
+        await reload()
+      } catch(err) {
+        console.error('saveSettings error:', err)
+      }
     }
   }
 
