@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS,prettyTime,minutesFromTime,timeFromMinutes} from '@/lib/utils'
 import {addDays,format,startOfWeek,subWeeks,addWeeks} from 'date-fns'
-import {ChevronLeft,ChevronRight,Plus,Trash2,Calendar as CalIcon,Check} from 'lucide-react'
+import {ChevronLeft,ChevronRight,Plus,Trash2,Check} from 'lucide-react'
 
 const DAY_PRESETS = [
   { label: 'Sat / Mon / Wed', days: [0, 2, 4] },
@@ -69,7 +69,7 @@ function CalendarPage(){
     return exceptions.find(e=>e.student_id===student_id&&e.class_date===date&&e.start_time.slice(0,5)===start.slice(0,5))
   }
 
-  function eventsFor(day:number,slot:string,date:string){
+  function eventsFor(day:number,slot:string,date:string): any[] {
     const cleanSlot = slot.slice(0,5)
     
     // Regular weekly schedules
@@ -79,7 +79,11 @@ function CalendarPage(){
         const ex = exFor(s.student_id, date, cleanSlot)
         return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
       })
-      .map(s => ({...s, date}))
+      .map(s => ({
+        ...s,
+        student: s.student || students.find(st => st.id === s.student_id),
+        date
+      }))
 
     // Rescheduled or extra classes scheduled for this date & slot
     const extras = exceptions
@@ -87,6 +91,7 @@ function CalendarPage(){
       .map(e => ({
         id: e.id,
         student_id: e.student_id,
+        student: e.student || students.find(st => st.id === e.student_id),
         start_time: e.start_time.slice(0,5),
         duration_minutes: e.duration_minutes || 60,
         day_of_week: day,
@@ -192,7 +197,7 @@ function CalendarPage(){
               const ev=eventsFor(di,slot,format(dates[di],'yyyy-MM-dd'))
               return (
                 <div className="cal-cell" key={slot}>
-                  {ev.map(e=>(
+                  {ev.map((e: any)=>(
                     <div 
                       key={e.id} 
                       className={'event '+(overlap(di,slot)?'conflict':'')} 
