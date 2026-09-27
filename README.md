@@ -8,7 +8,7 @@ TutorGrid is a responsive tutoring schedule and student-management PWA built for
 - Password change from Settings
 - Dashboard summary: students, today classes, tasks, monthly dues, attendance prompts
 - Weekly Saturday→Friday calendar with actual dates
-- Configurable day start/end, time interval, default duration and reminder time
+- Configurable day start/end, time interval and default duration
 - Recurring weekly student schedules
 - Per-date exceptions: off, cancelled, missed, rescheduled, completed, absent
 - Drag/drop or click-to-move class to an empty slot
@@ -19,7 +19,6 @@ TutorGrid is a responsive tutoring schedule and student-management PWA built for
 - Multiple syllabus/file uploads using Supabase Storage
 - General or student-linked tasks with priority/status/due date
 - Monthly BDT payment ledger with Paid/Partial/Due calculation
-- Browser push subscription + service worker + reminder cron endpoint
 - Installable PWA for desktop/mobile
 - Demo/local mode when Supabase env is not configured
 
@@ -63,39 +62,17 @@ SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_ADMIN_USERNAME=admin
 NEXT_PUBLIC_ADMIN_EMAIL=admin@tutorgrid.local
 NEXT_PUBLIC_DEMO_PASSWORD=only-for-local-demo-without-supabase
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-CRON_SECRET=long-random-secret
 ```
 
-Never expose `SUPABASE_SERVICE_ROLE_KEY` or `VAPID_PRIVATE_KEY` to the browser.
+Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser.
 
-## 4. Web Push / closed-app reminders
-
-Generate VAPID keys, for example:
-
-```bash
-npx web-push generate-vapid-keys
-```
-
-Add the keys to Vercel. In TutorGrid Settings, click **Enable push notifications**.
-
-`vercel.json` calls `/api/cron/reminders` every 5 minutes. Availability/frequency of Vercel Cron depends on your Vercel plan. If your plan does not support this cadence, point any trusted scheduler at the same endpoint and send:
-
-```text
-Authorization: Bearer YOUR_CRON_SECRET
-```
-
-The service worker receives the push and shows the notification when supported by the browser/OS, even while the PWA UI is not open.
-
-## 5. Deploy to Vercel
+## 4. Deploy to Vercel
 
 1. Push this folder to GitHub.
 2. Import repository into Vercel.
 3. Add all environment variables.
 4. Deploy.
-5. Open the deployed HTTPS URL and allow notifications.
-6. Use browser **Install app / Add to Home Screen** to install TutorGrid.
+5. Use browser **Install app / Add to Home Screen** to install TutorGrid.
 
 ## Current starter schedule
 
@@ -113,7 +90,6 @@ Core tables:
 - `payments`
 - `student_files`
 - `app_settings`
-- `push_subscriptions`
 
 Private syllabus files are stored in the `student-files` bucket.
 

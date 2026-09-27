@@ -73,5 +73,4 @@ export type Settings = {
   day_end: string
   interval_minutes: number
   default_duration_minutes: number
-  reminder_minutes: number
 }

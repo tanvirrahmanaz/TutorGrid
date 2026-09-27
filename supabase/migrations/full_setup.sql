@@ -89,18 +89,9 @@ create table if not exists public.app_settings (
   day_start time not null default '07:00',
   day_end time not null default '22:00',
   interval_minutes int not null default 30,
-  default_duration_minutes int not null default 60,
-  reminder_minutes int not null default 30
+  default_duration_minutes int not null default 60
 );
 insert into public.app_settings(id) values ('default') on conflict(id) do nothing;
-
-create table if not exists public.push_subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  endpoint text not null unique,
-  p256dh text not null,
-  auth text not null,
-  created_at timestamptz not null default now()
-);
 
 -- 3. Grant private single-admin app access to authenticated users only.
 grant usage on schema public to authenticated, service_role;
@@ -117,7 +108,7 @@ alter default privileges in schema public grant all on routines to authenticated
 
 -- 4. Enable RLS and allow only signed-in users.
 do $$ declare t text; begin
- foreach t in array array['students','schedules','schedule_exceptions','lesson_logs','tasks','payments','student_files','app_settings','push_subscriptions'] loop
+ foreach t in array array['students','schedules','schedule_exceptions','lesson_logs','tasks','payments','student_files','app_settings'] loop
    execute format('alter table if exists public.%I enable row level security', t);
    execute format('drop policy if exists authenticated_all on public.%I', t);
    execute format('drop policy if exists anon_all on public.%I', t);

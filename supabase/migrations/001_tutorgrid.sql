@@ -84,18 +84,9 @@ create table if not exists public.app_settings (
   day_start time not null default '07:00',
   day_end time not null default '22:00',
   interval_minutes int not null default 30,
-  default_duration_minutes int not null default 60,
-  reminder_minutes int not null default 30
+  default_duration_minutes int not null default 60
 );
 insert into public.app_settings(id) values ('default') on conflict(id) do nothing;
-
-create table if not exists public.push_subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  endpoint text not null unique,
-  p256dh text not null,
-  auth text not null,
-  created_at timestamptz not null default now()
-);
 
 -- Single-admin RLS. Every authenticated user is treated as the owner of this private app.
 alter table public.students enable row level security;

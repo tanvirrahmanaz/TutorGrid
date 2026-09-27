@@ -18,7 +18,7 @@ const primaryNav = [
 
 // Secondary items accessible in sidebar (desktop) and in "More" bottom sheet (mobile)
 const moreNav = [
-  { href: '/tasks', label: 'Tasks', Icon: ListTodo, desc: 'Lesson plans & reminders' },
+  { href: '/tasks', label: 'Tasks', Icon: ListTodo, desc: 'Lesson plans & follow-ups' },
   { href: '/payments', label: 'Payments', Icon: WalletCards, desc: 'Fee tracking & history' },
   { href: '/settings', label: 'Settings', Icon: Settings, desc: 'Timing & preferences' },
 ]

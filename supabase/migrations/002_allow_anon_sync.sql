@@ -12,7 +12,7 @@ grant all on all sequences in schema public to authenticated, service_role;
 grant all on all routines in schema public to authenticated, service_role;
 
 do $$ declare t text; begin
- foreach t in array array['students','schedules','schedule_exceptions','lesson_logs','tasks','payments','student_files','app_settings','push_subscriptions'] loop
+ foreach t in array array['students','schedules','schedule_exceptions','lesson_logs','tasks','payments','student_files','app_settings'] loop
    execute format('alter table if exists public.%I enable row level security', t);
    execute format('drop policy if exists public_all on public.%I', t);
    execute format('drop policy if exists anon_all on public.%I', t);

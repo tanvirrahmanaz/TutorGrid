@@ -40,8 +40,7 @@ const defaults: Settings = {
   day_start: '07:00',
   day_end: '22:00',
   interval_minutes: 30,
-  default_duration_minutes: 60,
-  reminder_minutes: 30
+  default_duration_minutes: 60
 }
 
 const C = createContext<Ctx | null>(null)
