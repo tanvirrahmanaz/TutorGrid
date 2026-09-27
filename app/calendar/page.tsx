@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS,prettyTime,minutesFromTime,timeFromMinutes} from '@/lib/utils'
 import {addDays,format,startOfWeek,subWeeks,addWeeks} from 'date-fns'
-import {ChevronLeft,ChevronRight,Plus,Trash2,Check,Clock,Calendar as CalIcon,RefreshCw,Layers} from 'lucide-react'
+import {ChevronLeft,ChevronRight,Plus,Trash2,Check,Clock,Calendar as CalIcon,RefreshCw,Sparkles,AlertTriangle,CheckCircle2,Info} from 'lucide-react'
 
 const DAY_PRESETS = [
   { label: 'Sat / Mon / Wed', days: [0, 2, 4] },
@@ -36,16 +36,19 @@ function CalendarContent(){
   const [selectedDays, setSelectedDays] = useState<number[]>([0]) // default Saturday
   const [startTime, setStartTime] = useState<string>('07:00')
   const [duration, setDuration] = useState<number>(settings.default_duration_minutes || 60)
+  const [showDayBreakdown, setShowDayBreakdown] = useState(false)
 
   const sat=addDays(startOfWeek(week,{weekStartsOn:0}),-1)
   const dates=Array.from({length:7},(_,i)=>addDays(sat,i))
 
+  function studentName(id:string){return students.find(s=>s.id===id)?.name||'Student'}
+
   // Auto set initial student when modal opens
-  function openAddModal(){
+  function openAddModal(prefillDay?: number, prefillTime?: string){
     const firstId = activeStudents[0]?.id || ''
     setSelectedStudentId(firstId)
-    setSelectedDays([0])
-    setStartTime('07:00')
+    setSelectedDays(prefillDay !== undefined ? [prefillDay] : [0])
+    setStartTime(prefillTime || '07:00')
     setDuration(settings.default_duration_minutes || 60)
     setModal(true)
   }
@@ -67,8 +70,6 @@ function CalendarContent(){
     }
     return Array.from(used).sort()
   },[settings,schedules,exceptions])
-
-  function studentName(id:string){return students.find(s=>s.id===id)?.name||'Student'}
 
   function exFor(student_id:string,date:string,start:string){
     return exceptions.find(e=>e.student_id===student_id&&e.class_date===date&&e.start_time.slice(0,5)===start.slice(0,5))
@@ -117,6 +118,81 @@ function CalendarContent(){
     )
   }
 
+  // --- FREE SLOTS & CONFLICT CALCULATION ---
+  const freeSlotsAnalysis = useMemo(() => {
+    if (!selectedDays.length) return { commonFree: [], conflicts: [], dayDetails: [] }
+
+    const dayStartM = minutesFromTime(settings.day_start || '07:00')
+    const dayEndM = minutesFromTime(settings.day_end || '22:00')
+    const step = 30 // test every 30 minutes
+    const testDur = duration || 60
+
+    // Candidates
+    const candidateTimes: string[] = []
+    for (let m = dayStartM; m + testDur <= dayEndM; m += step) {
+      candidateTimes.push(timeFromMinutes(m))
+    }
+
+    // Check which candidate times are free across ALL selected days
+    const commonFree = candidateTimes.filter(candTime => {
+      const candStartM = minutesFromTime(candTime)
+      const candEndM = candStartM + testDur
+
+      // Must be free in ALL selected days
+      return selectedDays.every(day => {
+        const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false)
+        return dayClasses.every(s => {
+          const sStart = minutesFromTime(s.start_time)
+          const sEnd = sStart + s.duration_minutes
+          // Overlap condition: not (end <= sStart or start >= sEnd)
+          const isOverlapping = !(candEndM <= sStart || candStartM >= sEnd)
+          return !isOverlapping
+        })
+      })
+    })
+
+    // Current selected time conflict check
+    const currentStartM = minutesFromTime(startTime)
+    const currentEndM = currentStartM + testDur
+    const conflicts: Array<{ day: number; student_name: string; time: string; duration: number }> = []
+
+    selectedDays.forEach(day => {
+      const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false)
+      dayClasses.forEach(s => {
+        const sStart = minutesFromTime(s.start_time)
+        const sEnd = sStart + s.duration_minutes
+        const isOverlapping = !(currentEndM <= sStart || currentStartM >= sEnd)
+        if (isOverlapping) {
+          conflicts.push({
+            day,
+            student_name: studentName(s.student_id),
+            time: prettyTime(s.start_time),
+            duration: s.duration_minutes
+          })
+        }
+      })
+    })
+
+    // Breakdown for each selected day
+    const dayDetails = selectedDays.map(day => {
+      const dayClasses = schedules
+        .filter(s => Number(s.day_of_week) === Number(day) && s.active !== false)
+        .sort((a,b) => a.start_time.localeCompare(b.start_time))
+      
+      return {
+        dayIndex: day,
+        dayName: DAYS[day],
+        classes: dayClasses.map(c => ({
+          studentName: studentName(c.student_id),
+          time: prettyTime(c.start_time),
+          duration: c.duration_minutes
+        }))
+      }
+    })
+
+    return { commonFree, conflicts, dayDetails }
+  }, [selectedDays, duration, startTime, schedules, settings, students])
+
   async function handleAddClasses(e: React.FormEvent){
     e.preventDefault()
     if(!selectedStudentId){
@@ -154,7 +230,6 @@ function CalendarContent(){
     if(!selected || !moveTime) return
 
     if(rescheduleType === 'permanent'){
-      // Permanent update for weekly recurrence
       await saveSchedule({
         id: selected.is_exception ? undefined : selected.id,
         student_id: selected.student_id,
@@ -163,7 +238,6 @@ function CalendarContent(){
         duration_minutes: Number(moveDuration)
       })
     } else {
-      // One-time temporary reschedule for this specific date
       await saveException({
         schedule_id: selected.id,
         student_id: selected.student_id,
@@ -192,8 +266,12 @@ function CalendarContent(){
   return <>
     <Topbar 
       title="Weekly Calendar" 
-      subtitle="Select multiple days for weekly tutoring · compact class view" 
-      actions={<button className="btn btn-primary" onClick={openAddModal}><Plus size={16}/> Add class</button>}
+      subtitle="Click any class to manage · or add new classes with smart free-slot finder" 
+      actions={
+        <button className="btn btn-primary" onClick={() => openAddModal()}>
+          <Plus size={16}/> Add class
+        </button>
+      }
     />
     
     <div className="toolbar">
@@ -218,7 +296,12 @@ function CalendarContent(){
             {slots.map(slot=>{
               const ev=eventsFor(di,slot,format(dates[di],'yyyy-MM-dd'))
               return (
-                <div className="cal-cell" key={slot}>
+                <div 
+                  className="cal-cell" 
+                  key={slot}
+                  onDoubleClick={() => openAddModal(di, slot)}
+                  title="Double click to add a class at this time"
+                >
                   {ev.map((e: any)=>(
                     <div 
                       key={e.id} 
@@ -322,7 +405,7 @@ function CalendarContent(){
       </div>
     )}
 
-    {/* Unified Move & Time Change Modal (Permanent vs 1-Day Temporary) */}
+    {/* Unified Move & Time Change Modal */}
     {moveModal&&selected&&(
       <Modal 
         title={`Change Time — ${studentName(selected.student_id)}`} 
@@ -462,7 +545,7 @@ function CalendarContent(){
       </Modal>
     )}
 
-    {/* Add weekly class modal with multi-day list selector */}
+    {/* Add weekly class modal with SMART FREE SLOTS FINDER */}
     {modal&&(
       <Modal title="Add weekly schedule" onClose={()=>setModal(false)}>
         <form onSubmit={handleAddClasses} className="form-grid">
@@ -528,7 +611,7 @@ function CalendarContent(){
               </button>
             </div>
 
-            {/* Day list checkboxes / interactive pill badges */}
+            {/* Day list checkboxes */}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(100px, 1fr))',gap:8}}>
               {DAYS.map((d, index)=>{
                 const isSelected = selectedDays.includes(index)
@@ -560,13 +643,56 @@ function CalendarContent(){
                 )
               })}
             </div>
-
-            {selectedDays.length > 0 && (
-              <div style={{fontSize:12,color:'#475569',marginTop:8,background:'#f1f5f9',padding:'6px 10px',borderRadius:6}}>
-                <b>Selected:</b> {selectedDays.map(i => DAYS[i]).join(', ')}
-              </div>
-            )}
           </div>
+
+          {/* Available Free Slots for Selected Days */}
+          {selectedDays.length > 0 && (
+            <div style={{gridColumn:'1/-1',background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:12,padding:'12px 14px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,fontWeight:700,fontSize:13,color:'#166534',marginBottom:6}}>
+                <Sparkles size={15} style={{color:'#15803d'}}/> 
+                সিলেক্ট করা দিনগুলোর ফাঁকা সময়সমূহ (Available Free Slots):
+              </div>
+              
+              {freeSlotsAnalysis.commonFree.length > 0 ? (
+                <>
+                  <div style={{fontSize:12,color:'#15803d',marginBottom:8}}>
+                    নিচের যেকোনো ফাঁকা সময়ে ক্লিক করলে স্বয়ংক্রিয়ভাবে টাইম সেট হয়ে যাবে:
+                  </div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {freeSlotsAnalysis.commonFree.slice(0, 12).map(ft => {
+                      const isSelectedTime = startTime.slice(0,5) === ft.slice(0,5)
+                      return (
+                        <button
+                          type="button"
+                          key={ft}
+                          onClick={() => setStartTime(ft)}
+                          style={{
+                            padding:'5px 10px',
+                            borderRadius:8,
+                            fontSize:12,
+                            fontWeight:700,
+                            cursor:'pointer',
+                            transition:'all .15s ease',
+                            border: isSelectedTime ? '2px solid #15803d' : '1px solid #86efac',
+                            background: isSelectedTime ? '#15803d' : '#fff',
+                            color: isSelectedTime ? '#fff' : '#166534',
+                            boxShadow: isSelectedTime ? '0 2px 8px rgba(21,128,61,0.3)' : 'none'
+                          }}
+                        >
+                          {isSelectedTime && '✓ '}
+                          {prettyTime(ft)}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div style={{fontSize:12,color:'#b45309'}}>
+                  ⚠️ সিলেক্ট করা সব দিনগুলোতে একই সাথে কমন কোনো ফ্রি স্লট নেই। আপনি নিজে নিচে আলাদা টাইম দিতে পারেন।
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="field">
             <label>Start time</label>
@@ -591,6 +717,64 @@ function CalendarContent(){
               required
             />
           </div>
+
+          {/* Real-time Conflict Check Warning / Success */}
+          {selectedDays.length > 0 && (
+            <div style={{gridColumn:'1/-1'}}>
+              {freeSlotsAnalysis.conflicts.length > 0 ? (
+                <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#92400e'}}>
+                  <AlertTriangle size={16} style={{color:'#d97706',flexShrink:0,marginTop:2}}/>
+                  <div>
+                    <b>⚠️ সময় কনফ্লিক্ট detected ({prettyTime(startTime)}):</b>
+                    <ul style={{margin:'4px 0 0',paddingLeft:18}}>
+                      {freeSlotsAnalysis.conflicts.map((c, idx) => (
+                        <li key={idx}>
+                          <b>{DAYS[c.day]}:</b> ইতিমধ্যে <b>{c.student_name}</b> এর ক্লাস আছে ({c.time} · {c.duration}m)
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <div style={{background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:10,padding:'8px 12px',display:'flex',alignItems:'center',gap:8,fontSize:12,color:'#065f46'}}>
+                  <CheckCircle2 size={16} style={{color:'#059669',flexShrink:0}}/>
+                  <span>
+                    <b>{prettyTime(startTime)}</b> সময়টি সিলেক্ট করা <b>{selectedDays.length}টি দিনেই সম্পূর্ণ ফাঁকা</b> রয়েছে! ✅
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Toggle Day-by-Day Schedule Breakdown */}
+          {selectedDays.length > 0 && (
+            <div style={{gridColumn:'1/-1'}}>
+              <button
+                type="button"
+                onClick={() => setShowDayBreakdown(!showDayBreakdown)}
+                style={{
+                  border:'none',background:'none',color:'#4f46e5',fontSize:12,fontWeight:700,cursor:'pointer',padding:0,display:'flex',alignItems:'center',gap:4
+                }}
+              >
+                <Info size={14}/> {showDayBreakdown ? 'সিলেক্ট করা দিনগুলোর শিডিউল লুকান ▲' : 'সিলেক্ট করা দিনগুলোতে কার কার ক্লাস আছে দেখুন ▼'}
+              </button>
+
+              {showDayBreakdown && (
+                <div style={{marginTop:8,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:10,display:'flex',flexDirection:'column',gap:6}}>
+                  {freeSlotsAnalysis.dayDetails.map(d => (
+                    <div key={d.dayIndex} style={{fontSize:12,borderBottom:'1px solid #f1f5f9',paddingBottom:4}}>
+                      <b style={{color:'#1e293b'}}>{d.dayName}:</b>{' '}
+                      {d.classes.length > 0 ? (
+                        <span>{d.classes.map(c => `${c.studentName} (${c.time})`).join(', ')}</span>
+                      ) : (
+                        <span style={{color:'#059669',fontWeight:600}}>পুরো দিনই সম্পূর্ণ ফাঁকা 🟢</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Existing weekly classes for this student */}
           {currentStudentSchedules.length > 0 && (
