@@ -21,9 +21,27 @@ function DashboardContent(){
   const todayDayIdx = getDayIndex(todayDate)
   const todayKey = format(todayDate, 'yyyy-MM-dd')
 
-  const todays = schedules
-    .filter(s => Number(s.day_of_week) === Number(todayDayIdx) && s.active !== false)
-    .sort((a,b) => a.start_time.localeCompare(b.start_time))
+  const todays = [
+    ...schedules
+      .filter(s => Number(s.day_of_week) === Number(todayDayIdx) && s.active !== false)
+      .filter(s => {
+        const ex = exceptions.find(e => e.student_id === s.student_id && e.class_date === todayKey && e.start_time.slice(0, 5) === s.start_time.slice(0, 5))
+        return !ex || !['off', 'cancelled', 'rescheduled', 'missed'].includes(ex.status)
+      })
+      .map(s => ({ ...s, is_exception: false })),
+    ...exceptions
+      .filter(e => e.class_date === todayKey && ['scheduled', 'completed'].includes(e.status))
+      .map(e => ({
+        id: e.id,
+        student_id: e.student_id,
+        day_of_week: todayDayIdx,
+        start_time: e.start_time,
+        duration_minutes: e.duration_minutes,
+        recurrence: 'weekly' as const,
+        active: true,
+        is_exception: true
+      }))
+  ].sort((a,b) => a.start_time.localeCompare(b.start_time))
 
   const pending = tasks.filter(t => t.status !== 'done')
   const month = format(todayDate, 'yyyy-MM')
@@ -38,7 +56,7 @@ function DashboardContent(){
 
   async function handleMark(s: typeof todays[0], status: 'completed' | 'absent' | 'cancelled' | 'missed') {
     await saveException({
-      schedule_id: s.id,
+      schedule_id: (s as any).is_exception ? undefined : s.id,
       student_id: s.student_id,
       class_date: todayKey,
       start_time: s.start_time.slice(0,5),

@@ -115,7 +115,7 @@ function AttendanceContent() {
 
   const monthlyCompleted = monthlyExceptions.filter(e => e.status === 'completed').length
   const monthlyAbsent = monthlyExceptions.filter(e => e.status === 'absent').length
-  const monthlyCancelled = monthlyExceptions.filter(e => ['cancelled', 'off', 'missed'].includes(e.status)).length
+  const monthlyCancelled = monthlyExceptions.filter(e => ['cancelled', 'off', 'missed', 'rescheduled'].includes(e.status)).length
   const totalMarked = monthlyCompleted + monthlyAbsent + monthlyCancelled
   const attendanceRate = (monthlyCompleted + monthlyAbsent) > 0 
     ? Math.round((monthlyCompleted / (monthlyCompleted + monthlyAbsent)) * 100) 
@@ -127,7 +127,7 @@ function AttendanceContent() {
       const stExceptions = monthlyExceptions.filter(e => e.student_id === st.id)
       const completed = stExceptions.filter(e => e.status === 'completed').length
       const absent = stExceptions.filter(e => e.status === 'absent').length
-      const cancelled = stExceptions.filter(e => ['cancelled', 'off', 'missed'].includes(e.status)).length
+      const cancelled = stExceptions.filter(e => ['cancelled', 'off', 'missed', 'rescheduled'].includes(e.status)).length
       const total = completed + absent + cancelled
       const rate = (completed + absent) > 0 ? Math.round((completed / (completed + absent)) * 100) : (completed > 0 ? 100 : 0)
       
@@ -715,7 +715,7 @@ function AttendanceContent() {
                 </thead>
                 <tbody>
                   {monthlyExceptions
-                    .filter(ex => historyStatusFilter === 'all' || ex.status === historyStatusFilter)
+                    .filter(ex => historyStatusFilter === 'all' || (historyStatusFilter === 'cancelled' ? ['cancelled','off','missed','rescheduled'].includes(ex.status) : ex.status === historyStatusFilter))
                     .sort((a,b) => b.class_date.localeCompare(a.class_date) || b.start_time.localeCompare(a.start_time))
                     .map((ex, i) => {
                       const s = students.find(x => x.id === ex.student_id)
@@ -735,7 +735,7 @@ function AttendanceContent() {
                           <td style={td()}>
                             {ex.status === 'completed' && statusBadge('#dcfce7','#047857','✓ Completed')}
                             {ex.status === 'absent' && statusBadge('#fee2e2','#b91c1c','✕ Absent')}
-                            {['cancelled','off','missed'].includes(ex.status) && statusBadge('#fef3c7','#b45309', ex.status)}
+                            {['cancelled','off','missed','rescheduled'].includes(ex.status) && statusBadge('#fef3c7','#b45309', ex.status)}
                           </td>
                           <td style={td()}><span style={{color:'#475569', fontSize:13}}>{ex.note || '—'}</span></td>
                           <td style={td()}>

@@ -1,6 +1,5 @@
--- Deprecated filename kept for compatibility.
--- TutorGrid must not grant anon write access in production.
--- This migration now preserves private authenticated-only access.
+-- Restore TutorGrid to a private single-admin Supabase app.
+-- Run this after older public/anon sync migrations if they were applied.
 
 grant usage on schema public to authenticated, service_role;
 revoke all on all tables in schema public from anon;

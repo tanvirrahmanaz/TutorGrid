@@ -31,12 +31,14 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Without Supabase configured, demo mode works locally. Demo login:
+Without Supabase configured, demo mode works only when you explicitly set local demo credentials:
 
-- username: `admin`
-- password: `tanviraz88`
+```env
+NEXT_PUBLIC_ADMIN_EMAIL=admin@tutorgrid.local
+NEXT_PUBLIC_DEMO_PASSWORD=your-local-demo-password
+```
 
-**Important:** the demo fallback password exists only for local/demo operation. For deployment, configure Supabase Auth so the production password is never hard-coded in the frontend.
+For deployment, configure Supabase Auth so the production password is never hard-coded in the frontend.
 
 ## 2. Create Supabase project
 
@@ -45,10 +47,10 @@ Open Supabase SQL Editor and run:
 1. `supabase/migrations/001_tutorgrid.sql`
 2. optionally `supabase/seed.sql`
 
-Then create one Supabase Auth user:
+Then create one Supabase Auth user with your own strong password:
 
 - Email: `admin@tutorgrid.local` (or your own value)
-- Password: `tanviraz88`
+- Password: create a private password in Supabase Auth
 
 Set the same email in `NEXT_PUBLIC_ADMIN_EMAIL`. The login form still shows username `admin`.
 
@@ -60,6 +62,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_ADMIN_USERNAME=admin
 NEXT_PUBLIC_ADMIN_EMAIL=admin@tutorgrid.local
+NEXT_PUBLIC_DEMO_PASSWORD=only-for-local-demo-without-supabase
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 CRON_SECRET=long-random-secret

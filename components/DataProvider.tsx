@@ -20,6 +20,7 @@ type Ctx = {
   syncNow: () => Promise<void>;
   saveStudent: (x: Partial<Student>) => Promise<void>;
   archiveStudent: (id: string) => Promise<void>;
+  deleteStudent: (id: string) => Promise<void>;
   saveSchedule: (x: Partial<Schedule> & { student_id: string }) => Promise<void>;
   saveSchedulesBulk: (items: Array<{ student_id: string; day_of_week: number; start_time: string; duration_minutes: number }>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
@@ -28,7 +29,9 @@ type Ctx = {
   saveExceptionsBulk: (items: Array<{ schedule_id?: string; student_id: string; class_date: string; start_time: string; duration_minutes: number; status: ScheduleException['status']; note?: string }>) => Promise<void>;
   deleteException: (id: string) => Promise<void>;
   saveTask: (x: Partial<TaskItem> & { title: string }) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
   savePayment: (x: Partial<Payment> & { student_id: string; month_key: string; amount: number }) => Promise<void>;
+  deletePayment: (id: string) => Promise<void>;
   saveSettings: (x: Partial<Settings>) => Promise<void>;
 }
 
@@ -293,21 +296,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const remoteStudents: Student[] = ((remoteStudRes.data || []) as Student[]).filter(s => !deletedStudIds.has(s.id))
       const remoteSchedules: Schedule[] = ((remoteSchedRes.data || []) as any[]).filter(s => !deletedSchedIds.has(s.id))
       const remoteExceptions: ScheduleException[] = ((remoteExRes.data || []) as any[]).filter(e => !deletedExIds.has(e.id))
-      const remoteTasks: TaskItem[] = (remoteTaskRes.data || []) as any
-      const remotePayments: Payment[] = (remotePayRes.data || []) as any
+      const remoteTasks: TaskItem[] = ((remoteTaskRes.data || []) as TaskItem[]).filter(t => !deletedStudIds.has(t.student_id || ''))
+      const remotePayments: Payment[] = ((remotePayRes.data || []) as Payment[]).filter(p => !deletedStudIds.has(p.student_id))
       const remoteSettings: Settings = remoteSetRes.data ? (remoteSetRes.data as any) : defaults
 
       // 2. Read local data to check if we have local unpushed items
       const local = getLocalSnapshot()
       // Purge any local tombstoned items
       local.students = local.students.filter(s => !deletedStudIds.has(s.id))
-      local.schedules = local.schedules.filter(s => !deletedSchedIds.has(s.id))
-      local.exceptions = local.exceptions.filter(e => !deletedExIds.has(e.id))
+      local.schedules = local.schedules.filter(s => !deletedSchedIds.has(s.id) && !deletedStudIds.has(s.student_id))
+      local.exceptions = local.exceptions.filter(e => !deletedExIds.has(e.id) && !deletedStudIds.has(e.student_id))
+      local.tasks = local.tasks.filter(t => !t.student_id || !deletedStudIds.has(t.student_id))
+      local.payments = local.payments.filter(p => !deletedStudIds.has(p.student_id))
       persistLocal(local)
 
-      // Find local students not in remote (and not deleted)
-      const remoteStudentIds = new Set(remoteStudents.map(s => s.id))
-      const localStudentsToPush = local.students.filter(s => isUUID(s.id) && !remoteStudentIds.has(s.id) && !deletedStudIds.has(s.id))
+      // Local storage is the offline source of truth for this single-admin app.
+      // Upserting all local rows prevents offline edits from being overwritten by
+      // older cloud data on the next sync.
+      const localStudentsToPush = local.students.filter(s => isUUID(s.id) && !deletedStudIds.has(s.id))
 
       if (localStudentsToPush.length > 0) {
         const rows = localStudentsToPush.map(s => ({
@@ -323,9 +329,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('students').upsert(rows, { onConflict: 'id' })
       }
 
-      // Find local schedules to push (and NEVER push deleted schedules!)
-      const remoteSchedIds = new Set(remoteSchedules.map(s => s.id))
-      const localSchedsToPush = local.schedules.filter(sc => isUUID(sc.id) && !remoteSchedIds.has(sc.id) && !deletedSchedIds.has(sc.id))
+      const localSchedsToPush = local.schedules.filter(sc => isUUID(sc.id) && !remoteStudentIdsMissing(sc.student_id, local.students) && !deletedSchedIds.has(sc.id))
       if (localSchedsToPush.length > 0) {
         const rows = localSchedsToPush.map(sc => ({
           id: sc.id,
@@ -339,9 +343,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('schedules').upsert(rows, { onConflict: 'id' })
       }
 
-      // Find local exceptions to push (and NEVER push deleted exceptions!)
-      const remoteExKeys = new Set(remoteExceptions.map(e => `${e.student_id}_${e.class_date}_${e.start_time.slice(0, 5)}`))
-      const localExToPush = local.exceptions.filter(e => !remoteExKeys.has(`${e.student_id}_${e.class_date}_${e.start_time.slice(0, 5)}`) && !deletedExIds.has(e.id))
+      const localExToPush = local.exceptions.filter(e => !remoteStudentIdsMissing(e.student_id, local.students) && !deletedExIds.has(e.id))
       if (localExToPush.length > 0) {
         const rows = localExToPush.map(e => ({
           schedule_id: e.schedule_id && isUUID(e.schedule_id) ? e.schedule_id : null,
@@ -356,9 +358,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('schedule_exceptions').upsert(rows, { onConflict: 'student_id,class_date,start_time' })
       }
 
-      // Find local tasks to push
-      const remoteTaskIds = new Set(remoteTasks.map(t => t.id))
-      const localTasksToPush = local.tasks.filter(t => isUUID(t.id) && !remoteTaskIds.has(t.id))
+      const localTasksToPush = local.tasks.filter(t => isUUID(t.id) && (!t.student_id || !remoteStudentIdsMissing(t.student_id, local.students)))
       if (localTasksToPush.length > 0) {
         const rows = localTasksToPush.map(t => ({
           id: t.id,
@@ -373,9 +373,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('tasks').upsert(rows, { onConflict: 'id' })
       }
 
-      // Find local payments to push
-      const remotePayIds = new Set(remotePayments.map(p => p.id))
-      const localPaysToPush = local.payments.filter(p => isUUID(p.id) && !remotePayIds.has(p.id))
+      const localPaysToPush = local.payments.filter(p => isUUID(p.id) && !remoteStudentIdsMissing(p.student_id, local.students))
       if (localPaysToPush.length > 0) {
         const rows = localPaysToPush.map(p => ({
           id: p.id,
@@ -398,6 +396,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       ])
 
       // Clean up any stale remote items that were deleted locally
+      const staleRemoteStudents = ((finalStud.data || []) as any[]).filter(s => deletedStudIds.has(s.id))
+      if (staleRemoteStudents.length > 0) {
+        for (const st of staleRemoteStudents) {
+          supabase.from('students').delete().eq('id', st.id).then(() => {})
+        }
+      }
       const staleRemoteSchedules = ((finalSched.data || []) as any[]).filter(s => deletedSchedIds.has(s.id))
       if (staleRemoteSchedules.length > 0) {
         for (const st of staleRemoteSchedules) {
@@ -412,10 +416,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const mergedStudents = ((finalStud.data || []) as Student[]).filter(s => !deletedStudIds.has(s.id))
-      const mergedSchedules = ((finalSched.data || []) as Schedule[]).filter(s => !deletedSchedIds.has(s.id))
-      const mergedExceptions = ((finalEx.data || []) as ScheduleException[]).filter(e => !deletedExIds.has(e.id))
-      const mergedTasks = (finalTask.data || []) as any
-      const mergedPayments = (finalPay.data || []) as any
+      const mergedSchedules = ((finalSched.data || []) as Schedule[]).filter(s => !deletedSchedIds.has(s.id) && !deletedStudIds.has(s.student_id))
+      const mergedExceptions = ((finalEx.data || []) as ScheduleException[]).filter(e => !deletedExIds.has(e.id) && !deletedStudIds.has(e.student_id))
+      const mergedTasks = ((finalTask.data || []) as TaskItem[]).filter(t => !t.student_id || !deletedStudIds.has(t.student_id))
+      const mergedPayments = ((finalPay.data || []) as Payment[]).filter(p => !deletedStudIds.has(p.student_id))
 
       setStudents(mergedStudents)
       setSchedules(mergedSchedules)
@@ -455,6 +459,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       isSyncingRef.current = false
     }
   }, [supabase])
+
+  function remoteStudentIdsMissing(studentId: string | null | undefined, sourceStudents: Student[]) {
+    if (!studentId) return false
+    return !sourceStudents.some(s => s.id === studentId)
+  }
 
   useEffect(() => {
     // Initial sync
@@ -529,6 +538,59 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setSyncStatus('synced')
       } catch (err: any) {
         console.error('archiveStudent error:', err)
+      }
+    }
+  }
+
+  async function deleteStudent(id: string) {
+    lastActionTimestampRef.current = Date.now()
+    addDeletedId('students', id)
+
+    const studentScheds = schedules.filter(s => s.student_id === id)
+    const studentExs = exceptions.filter(e => e.student_id === id)
+    studentScheds.forEach(s => addDeletedId('schedules', s.id))
+    studentExs.forEach(e => addDeletedId('exceptions', e.id))
+
+    setStudents(prev => {
+      const next = prev.filter(s => s.id !== id)
+      persistLocal({ students: next })
+      return next
+    })
+    setSchedules(prev => {
+      const next = prev.filter(s => s.student_id !== id)
+      persistLocal({ schedules: next })
+      return next
+    })
+    setExceptions(prev => {
+      const next = prev.filter(e => e.student_id !== id)
+      persistLocal({ exceptions: next })
+      return next
+    })
+    setTasks(prev => {
+      const next = prev.map(t => t.student_id === id ? { ...t, student_id: null } : t)
+      persistLocal({ tasks: next })
+      return next
+    })
+    setPayments(prev => {
+      const next = prev.filter(p => p.student_id !== id)
+      persistLocal({ payments: next })
+      return next
+    })
+
+    if (supabase) {
+      try {
+        const { data: files } = await supabase.from('student_files').select('storage_path').eq('student_id', id)
+        const paths = ((files || []) as Array<{ storage_path: string }>).map(f => f.storage_path).filter(Boolean)
+        if (paths.length) {
+          await supabase.storage.from('student-files').remove(paths)
+        }
+        await supabase.from('students').delete().eq('id', id)
+        setSyncStatus('synced')
+        setLastSyncedAt(new Date())
+      } catch (err: any) {
+        console.error('deleteStudent error:', err)
+        setSyncStatus('error')
+        setSyncErrorMsg(err.message)
       }
     }
   }
@@ -805,6 +867,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function deleteTask(id: string) {
+    setTasks(prev => {
+      const next = prev.filter(t => t.id !== id)
+      persistLocal({ tasks: next })
+      return next
+    })
+    if (supabase) {
+      try {
+        await supabase.from('tasks').delete().eq('id', id)
+        setSyncStatus('synced')
+      } catch (err: any) {
+        console.error('deleteTask error:', err)
+      }
+    }
+  }
+
   async function savePayment(x: Partial<Payment> & { student_id: string; month_key: string; amount: number }) {
     const student = students.find(s => s.id === x.student_id)
     const paymentId = x.id && isUUID(x.id) ? x.id : uid()
@@ -819,7 +897,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
 
     setPayments(prev => {
-      const next = [row, ...prev]
+      const next = x.id ? prev.map(p => p.id === x.id ? { ...p, ...row } : p) : [row, ...prev]
       persistLocal({ payments: next })
       return next
     })
@@ -837,6 +915,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setSyncStatus('synced')
       } catch (err: any) {
         console.error('savePayment error:', err)
+      }
+    }
+  }
+
+  async function deletePayment(id: string) {
+    setPayments(prev => {
+      const next = prev.filter(p => p.id !== id)
+      persistLocal({ payments: next })
+      return next
+    })
+    if (supabase) {
+      try {
+        await supabase.from('payments').delete().eq('id', id)
+        setSyncStatus('synced')
+      } catch (err: any) {
+        console.error('deletePayment error:', err)
       }
     }
   }
@@ -914,6 +1008,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     syncNow: syncWithCloud,
     saveStudent,
     archiveStudent,
+    deleteStudent,
     saveSchedule,
     saveSchedulesBulk,
     deleteSchedule,
@@ -922,7 +1017,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     saveExceptionsBulk,
     deleteException,
     saveTask,
+    deleteTask,
     savePayment,
+    deletePayment,
     saveSettings
   }), [students, schedules, exceptions, tasks, payments, settings, syncStatus, lastSyncedAt, syncErrorMsg, syncWithCloud])
 

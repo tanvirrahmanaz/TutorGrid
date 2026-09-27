@@ -5,11 +5,11 @@ import Topbar from '@/components/Topbar'
 import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS, prettyTime, currency} from '@/lib/utils'
-import {Plus, Search, Archive, FileText, Calendar, AlertTriangle, CheckCircle2, UserX} from 'lucide-react'
+import {Plus, Search, Archive, Calendar, AlertTriangle, Trash2} from 'lucide-react'
 import Link from 'next/link'
 
 function StudentsContent(){
-  const {students, schedules, saveStudent, archiveStudent} = useData()
+  const {students, schedules, saveStudent, archiveStudent, deleteStudent} = useData()
   const [q, setQ] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
   const [modal, setModal] = useState(false)
@@ -39,6 +39,12 @@ function StudentsContent(){
     })
     setModal(false)
     setEditing(null)
+  }
+
+  async function confirmDelete(id: string, name: string) {
+    const ok = confirm(`Delete ${name} permanently? This will remove the student, schedules, attendance records, payments, lesson logs, and uploaded file records from the database.`)
+    if (!ok) return
+    await deleteStudent(id)
   }
 
   return (
@@ -177,6 +183,14 @@ function StudentsContent(){
                 )}
                 <button className="btn btn-ghost" onClick={() => archiveStudent(s.id)} title="Archive">
                   <Archive size={14}/>
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => confirmDelete(s.id, s.name)}
+                  title="Delete permanently"
+                  style={{color:'#dc2626', border:'1px solid #fecaca'}}
+                >
+                  <Trash2 size={14}/>
                 </button>
               </div>
             </div>

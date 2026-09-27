@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import { useData } from '@/components/DataProvider'
 import { getSupabaseBrowser } from '@/lib/supabase'
 import { DAYS, prettyTime } from '@/lib/utils'
-import { Calendar, Clock, Plus, Trash2, Pencil, BookOpen, AlertTriangle } from 'lucide-react'
+import { Calendar, Clock, Plus, Trash2, Pencil, AlertTriangle, ExternalLink } from 'lucide-react'
 
 function Detail() {
   const { id } = useParams<{ id: string }>()
@@ -64,6 +64,21 @@ function Detail() {
       mime_type: file.type
     })
     setMsg(error?.message || 'File uploaded.')
+    load()
+  }
+
+  async function openFile(path: string) {
+    if (!supabase) return
+    const { data, error } = await supabase.storage.from('student-files').createSignedUrl(path, 60)
+    if (error) { setMsg(error.message); return }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  async function deleteFile(fileId: string, path: string) {
+    if (!supabase) return
+    await supabase.storage.from('student-files').remove([path])
+    const { error } = await supabase.from('student_files').delete().eq('id', fileId)
+    setMsg(error?.message || 'File deleted.')
     load()
   }
 
@@ -239,7 +254,15 @@ function Detail() {
             {files.map(f => (
               <div className="list-item" key={f.id}>
                 <b>{f.file_name}</b>
-                <span className="badge">{f.mime_type || 'file'}</span>
+                <div style={{display:'flex', alignItems:'center', gap:6}}>
+                  <span className="badge">{f.mime_type || 'file'}</span>
+                  <button type="button" className="btn btn-ghost" onClick={() => openFile(f.storage_path)} title="Open file">
+                    <ExternalLink size={14}/>
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={() => deleteFile(f.id, f.storage_path)} title="Delete file" style={{color:'#dc2626'}}>
+                    <Trash2 size={14}/>
+                  </button>
+                </div>
               </div>
             ))}
             {!files.length && <div className="sub">No syllabus or files uploaded yet.</div>}

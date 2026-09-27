@@ -162,7 +162,7 @@ function CalendarContent(){
       })
 
     const ext = exceptions
-      .filter(e => e.class_date === selectedDateStr && ['scheduled','rescheduled'].includes(e.status))
+      .filter(e => e.class_date === selectedDateStr && ['scheduled','completed'].includes(e.status))
       .map(e => ({
         id: e.id,
         schedule_id: e.schedule_id,
@@ -273,7 +273,7 @@ function CalendarContent(){
         }))
 
       const ext = exceptions
-        .filter(e => e.class_date === dStr && ['scheduled','completed','rescheduled'].includes(e.status))
+        .filter(e => e.class_date === dStr && ['scheduled','completed'].includes(e.status))
         .map(e => ({
           id: e.id,
           schedule_id: e.schedule_id,

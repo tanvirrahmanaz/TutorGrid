@@ -5,11 +5,11 @@ import Topbar from '@/components/Topbar'
 import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {currency} from '@/lib/utils'
-import {Plus, Pencil, TrendingUp, Wallet, AlertCircle, CheckCircle2, ChevronLeft, ChevronRight} from 'lucide-react'
+import {Plus, Pencil, TrendingUp, Wallet, AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Trash2} from 'lucide-react'
 import {format, addMonths, subMonths, parseISO} from 'date-fns'
 
 function Payments(){
-  const {students, payments, savePayment, saveStudent} = useData()
+  const {students, payments, savePayment, deletePayment, saveStudent} = useData()
   const [addModal, setAddModal] = useState(false)
   const [editModal, setEditModal] = useState<any>(null)
   const [currentMonth, setCurrentMonth] = useState(new Date())
@@ -21,7 +21,7 @@ function Payments(){
       .filter(p => p.student_id === s.id && p.month_key === month)
       .reduce((a, p) => a + Number(p.amount), 0)
     const fee = Number(s.monthly_fee || 0)
-    return { s, paid, fee, due: Math.max(0, fee - paid) }
+    return { s, paid, fee, due: Math.max(0, fee - paid), overpaid: Math.max(0, paid - fee) }
   })
 
   const totalMonthly = rows.reduce((a, r) => a + r.fee, 0)
@@ -58,6 +58,7 @@ function Payments(){
 
   function statusBadge(r: typeof rows[0]) {
     if (r.fee === 0) return <span style={badge('#f2f4f7','#475467')}>No fee set</span>
+    if (r.overpaid > 0) return <span style={badge('#e0f2fe','#0369a1')}>Overpaid</span>
     if (r.due === 0) return <span style={badge('#dcfce7','#047857')}>✓ Paid</span>
     if (r.paid > 0) return <span style={badge('#fef3c7','#b45309')}>Partial</span>
     return <span style={badge('#fee2e2','#b91c1c')}>Due</span>
@@ -139,7 +140,7 @@ function Payments(){
             <th style={th()}>Student</th>
             <th style={th()}>Monthly Fee</th>
             <th style={th()}>Paid ({monthLabel})</th>
-            <th style={th()}>Due</th>
+            <th style={th()}>Due / Extra</th>
             <th style={th()}>Status</th>
             <th style={th()}>Action</th>
           </tr>
@@ -164,7 +165,7 @@ function Payments(){
               <td style={td()}><span style={{color:'#059669', fontWeight:700}}>{currency(r.paid)}</span></td>
               <td style={td()}>
                 <span style={{color: r.due > 0 ? '#dc2626' : '#059669', fontWeight:700}}>
-                  {r.due > 0 ? currency(r.due) : '—'}
+                  {r.overpaid > 0 ? `+${currency(r.overpaid)}` : r.due > 0 ? currency(r.due) : '-'}
                 </span>
               </td>
               <td style={td()}>{statusBadge(r)}</td>
@@ -202,9 +203,20 @@ function Payments(){
                     <div style={{fontSize:12, color:'#667085'}}>{p.note||'Payment recorded'}</div>
                   </div>
                 </div>
-                <div style={{textAlign:'right'}}>
+                <div style={{textAlign:'right', display:'flex', alignItems:'center', gap:10}}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => deletePayment(p.id)}
+                    title="Delete payment"
+                    style={{color:'#dc2626', padding:'5px 8px'}}
+                  >
+                    <Trash2 size={14}/>
+                  </button>
+                  <div>
                   <div style={{fontWeight:800, color:'#059669'}}>{currency(Number(p.amount))}</div>
                   <div style={{fontSize:11, color:'#667085'}}>{format(parseISO(p.paid_at), 'd MMM, h:mm a')}</div>
+                  </div>
                 </div>
               </div>
             )
@@ -281,3 +293,4 @@ function td() {
 }
 
 export default function Page(){return <ProtectedLayout><Payments/></ProtectedLayout>}
+
