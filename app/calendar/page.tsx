@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import {useData} from '@/components/DataProvider'
 import {DAYS,prettyTime,minutesFromTime,timeFromMinutes} from '@/lib/utils'
 import {addDays,format,startOfWeek,subWeeks,addWeeks} from 'date-fns'
-import {ChevronLeft,ChevronRight,Plus,Trash2,Check} from 'lucide-react'
+import {ChevronLeft,ChevronRight,Plus,Trash2,Check,Clock,Calendar as CalIcon,RefreshCw,Layers} from 'lucide-react'
 
 const DAY_PRESETS = [
   { label: 'Sat / Mon / Wed', days: [0, 2, 4] },
@@ -22,8 +22,13 @@ function CalendarContent(){
   const [selected,setSelected]=useState<any>(null)
   const [query,setQuery]=useState('')
   const [moveModal,setMoveModal]=useState(false)
+  
+  // Move / Reschedule modal state
+  const [rescheduleType, setRescheduleType] = useState<'temporary' | 'permanent'>('temporary')
   const [moveDate,setMoveDate]=useState('')
   const [moveTime,setMoveTime]=useState('')
+  const [moveDay,setMoveDay]=useState<number>(0)
+  const [moveDuration,setMoveDuration]=useState<number>(60)
 
   // Add class state
   const activeStudents = students.filter(s=>!s.archived)
@@ -134,34 +139,52 @@ function CalendarContent(){
     setModal(false)
   }
 
-  async function doMove(){
-    if(!selected||!moveDate||!moveTime)return
-    await saveException({
-      schedule_id:selected.id,
-      student_id:selected.student_id,
-      class_date:selected.date,
-      start_time:selected.start_time.slice(0,5),
-      duration_minutes:selected.duration_minutes,
-      status:'rescheduled',
-      original_date:selected.date
-    })
-    await saveException({
-      student_id:selected.student_id,
-      class_date:moveDate,
-      start_time:moveTime.slice(0,5),
-      duration_minutes:selected.duration_minutes,
-      status:'scheduled',
-      original_date:selected.date
-    })
-    setSelected(null)
-    setMoveModal(false)
-  }
-
-  function openMove(){
+  function openMove(type: 'temporary' | 'permanent' = 'temporary'){
     if(!selected)return
+    setRescheduleType(type)
     setMoveDate(selected.date)
     setMoveTime(selected.start_time.slice(0,5))
+    setMoveDay(Number(selected.day_of_week ?? 0))
+    setMoveDuration(Number(selected.duration_minutes || 60))
     setMoveModal(true)
+  }
+
+  async function doReschedule(e: React.FormEvent){
+    e.preventDefault()
+    if(!selected || !moveTime) return
+
+    if(rescheduleType === 'permanent'){
+      // Permanent update for weekly recurrence
+      await saveSchedule({
+        id: selected.is_exception ? undefined : selected.id,
+        student_id: selected.student_id,
+        day_of_week: Number(moveDay),
+        start_time: moveTime.slice(0,5),
+        duration_minutes: Number(moveDuration)
+      })
+    } else {
+      // One-time temporary reschedule for this specific date
+      await saveException({
+        schedule_id: selected.id,
+        student_id: selected.student_id,
+        class_date: selected.date,
+        start_time: selected.start_time.slice(0,5),
+        duration_minutes: selected.duration_minutes,
+        status: 'rescheduled',
+        original_date: selected.date
+      })
+      await saveException({
+        student_id: selected.student_id,
+        class_date: moveDate,
+        start_time: moveTime.slice(0,5),
+        duration_minutes: Number(moveDuration),
+        status: 'scheduled',
+        original_date: selected.date
+      })
+    }
+
+    setSelected(null)
+    setMoveModal(false)
   }
 
   const currentStudentSchedules = schedules.filter(s => s.student_id === selectedStudentId && s.active !== false)
@@ -202,9 +225,12 @@ function CalendarContent(){
                       className={'event '+(overlap(di,slot)?'conflict':'')} 
                       style={{
                         background:e.student?.color||students.find(s=>s.id===e.student_id)?.color||'#4f46e5',
-                        outline:selected?.id===e.id?'2px solid #fff':undefined,
-                        opacity:selected&&selected.id!==e.id?0.6:1,
-                        cursor:'pointer'
+                        outline:selected?.id===e.id?'3px solid #000':undefined,
+                        boxShadow:selected?.id===e.id?'0 0 0 2px #fff, 0 6px 16px rgba(0,0,0,0.3)':undefined,
+                        opacity:selected&&selected.id!==e.id?0.5:1,
+                        cursor:'pointer',
+                        transform:selected?.id===e.id?'scale(1.02)':'none',
+                        transition:'all .15s ease'
                       }} 
                       onClick={x=>{x.stopPropagation();setSelected(selected?.id===e.id?null:{...e,date:format(dates[di],'yyyy-MM-dd')})}}
                     >
@@ -220,32 +246,219 @@ function CalendarContent(){
       </div>
     </div>
 
-    {/* Selected class action panel */}
+    {/* Selected class action floating panel with direct time change */}
     {selected&&(
-      <div className="card" style={{position:'fixed',right:20,bottom:20,zIndex:30,maxWidth:360,boxShadow:'0 10px 25px rgba(0,0,0,0.15)',borderRadius:14,border:'1px solid #e2e8f0'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
-          <div>
-            <b style={{fontSize:16}}>{studentName(selected.student_id)}</b>
-            <div className="sub">{selected.date} ({DAYS[selected.day_of_week]}) · {prettyTime(selected.start_time)} ({selected.duration_minutes}m)</div>
+      <div className="card" style={{position:'fixed',right:20,bottom:20,zIndex:40,maxWidth:380,width:'90%',boxShadow:'0 12px 32px rgba(15,23,42,0.2)',borderRadius:16,border:'2px solid #6366f1',background:'#fff'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{
+              width:38,height:38,borderRadius:10,
+              background:selected.student?.color||students.find(s=>s.id===selected.student_id)?.color||'#4f46e5',
+              color:'#fff',display:'grid',placeItems:'center',fontWeight:800,fontSize:14
+            }}>
+              {studentName(selected.student_id).charAt(0)}
+            </div>
+            <div>
+              <b style={{fontSize:16,display:'block',color:'#0f172a'}}>{studentName(selected.student_id)}</b>
+              <div className="sub" style={{fontSize:12}}>
+                {selected.date} ({DAYS[selected.day_of_week]}) · <b>{prettyTime(selected.start_time)}</b> ({selected.duration_minutes}m)
+              </div>
+            </div>
           </div>
-          <button className="btn btn-ghost" style={{padding:'4px 8px',fontSize:12}} onClick={()=>setSelected(null)}>✕</button>
+          <button className="btn btn-ghost" style={{padding:'4px 8px',fontSize:12,borderRadius:8}} onClick={()=>setSelected(null)}>✕</button>
         </div>
-        <div className="toolbar" style={{margin:'12px 0 0',display:'flex',gap:6,flexWrap:'wrap'}}>
-          <button className="btn btn-primary" onClick={openMove}>Move to…</button>
-          <button className="btn btn-soft" onClick={async()=>{await saveException({schedule_id:selected.id,student_id:selected.student_id,class_date:selected.date,start_time:selected.start_time.slice(0,5),duration_minutes:selected.duration_minutes,status:'off'});setSelected(null)}}>Off today</button>
-          <button className="btn btn-ghost" style={{color:'#dc2626'}} onClick={async()=>{if(confirm('Remove this weekly schedule slot?')){await deleteSchedule(selected.id);setSelected(null)}}}>Delete</button>
+
+        {/* Quick Action Buttons */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8,marginTop:12}}>
+          <button 
+            className="btn btn-primary" 
+            style={{padding:'9px 10px',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}
+            onClick={()=>openMove('temporary')}
+          >
+            <Clock size={14}/> এই দিনের টাইম চেঞ্জ
+          </button>
+          
+          <button 
+            className="btn btn-soft" 
+            style={{padding:'9px 10px',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:6,color:'#4338ca'}}
+            onClick={()=>openMove('permanent')}
+          >
+            <RefreshCw size={13}/> স্থায়ী রুটিন চেঞ্জ
+          </button>
+        </div>
+
+        <div style={{display:'flex',gap:6,marginTop:8}}>
+          <button 
+            className="btn btn-ghost" 
+            style={{flex:1,padding:'7px 10px',fontSize:12}} 
+            onClick={async()=>{
+              await saveException({
+                schedule_id:selected.id,
+                student_id:selected.student_id,
+                class_date:selected.date,
+                start_time:selected.start_time.slice(0,5),
+                duration_minutes:selected.duration_minutes,
+                status:'off'
+              });
+              setSelected(null)
+            }}
+          >
+            ⏸️ Off today
+          </button>
+          
+          <button 
+            className="btn btn-ghost" 
+            style={{padding:'7px 12px',fontSize:12,color:'#dc2626'}} 
+            onClick={async()=>{
+              if(confirm('Delete this weekly schedule slot for ' + studentName(selected.student_id) + '?')){
+                await deleteSchedule(selected.id);
+                setSelected(null);
+              }
+            }}
+          >
+            <Trash2 size={13} style={{display:'inline',marginRight:4,verticalAlign:-2}}/> Delete
+          </button>
         </div>
       </div>
     )}
 
-    {/* Move modal with date+time picker */}
+    {/* Unified Move & Time Change Modal (Permanent vs 1-Day Temporary) */}
     {moveModal&&selected&&(
-      <Modal title={`Move ${studentName(selected.student_id)}'s class`} onClose={()=>setMoveModal(false)}>
-        <div className="form-grid">
-          <div className="field"><label>New Date</label><input className="input" type="date" value={moveDate} onChange={e=>setMoveDate(e.target.value)}/></div>
-          <div className="field"><label>New Time</label><input className="input" type="time" value={moveTime} onChange={e=>setMoveTime(e.target.value)}/></div>
-          <div style={{gridColumn:'1/-1'}}><button className="btn btn-primary" onClick={doMove}>✓ Confirm Move</button></div>
-        </div>
+      <Modal 
+        title={`Change Time — ${studentName(selected.student_id)}`} 
+        onClose={()=>setMoveModal(false)}
+      >
+        <form onSubmit={doReschedule} className="form-grid">
+          {/* Mode Selector Tabs */}
+          <div style={{gridColumn:'1/-1',marginBottom:6}}>
+            <label style={{fontWeight:700,fontSize:13,display:'block',marginBottom:8,color:'#1e293b'}}>
+              কীভাবে টাইম পরিবর্তন করতে চান?
+            </label>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+              <div 
+                onClick={()=>setRescheduleType('temporary')}
+                style={{
+                  border: rescheduleType === 'temporary' ? '2px solid #4f46e5' : '1px solid #e2e8f0',
+                  background: rescheduleType === 'temporary' ? '#eef2ff' : '#fff',
+                  borderRadius:12,
+                  padding:'12px 14px',
+                  cursor:'pointer',
+                  transition:'all .15s ease'
+                }}
+              >
+                <div style={{display:'flex',alignItems:'center',gap:6,fontWeight:700,fontSize:14,color:rescheduleType==='temporary'?'#4338ca':'#1e293b'}}>
+                  <CalIcon size={16}/> শুধু ১ দিনের জন্য
+                </div>
+                <div style={{fontSize:12,color:'#64748b',marginTop:4}}>
+                  শুধুমাত্র {selected.date} তারিখের ক্লাসের সময় রিশিডিউল হবে।
+                </div>
+              </div>
+
+              <div 
+                onClick={()=>setRescheduleType('permanent')}
+                style={{
+                  border: rescheduleType === 'permanent' ? '2px solid #4f46e5' : '1px solid #e2e8f0',
+                  background: rescheduleType === 'permanent' ? '#eef2ff' : '#fff',
+                  borderRadius:12,
+                  padding:'12px 14px',
+                  cursor:'pointer',
+                  transition:'all .15s ease'
+                }}
+              >
+                <div style={{display:'flex',alignItems:'center',gap:6,fontWeight:700,fontSize:14,color:rescheduleType==='permanent'?'#4338ca':'#1e293b'}}>
+                  <RefreshCw size={15}/> স্থায়ীভাবে সব সপ্তাহের জন্য
+                </div>
+                <div style={{fontSize:12,color:'#64748b',marginTop:4}}>
+                  প্রতি সপ্তাহের রুটিন পারমানেন্টলি এই নতুন টাইমে আপডেট হবে।
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {rescheduleType === 'temporary' ? (
+            <>
+              <div className="field">
+                <label>New Date</label>
+                <input 
+                  className="input" 
+                  type="date" 
+                  value={moveDate} 
+                  onChange={e=>setMoveDate(e.target.value)} 
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>New Start Time</label>
+                <input 
+                  className="input" 
+                  type="time" 
+                  value={moveTime} 
+                  onChange={e=>setMoveTime(e.target.value)} 
+                  required
+                />
+              </div>
+              <div className="field" style={{gridColumn:'1/-1'}}>
+                <label>Duration (minutes)</label>
+                <input 
+                  className="input" 
+                  type="number" 
+                  value={moveDuration} 
+                  onChange={e=>setMoveDuration(Number(e.target.value))} 
+                  min="15" 
+                  step="15" 
+                  required
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="field">
+                <label>Weekly Day</label>
+                <select 
+                  className="select" 
+                  value={moveDay} 
+                  onChange={e=>setMoveDay(Number(e.target.value))}
+                >
+                  {DAYS.map((d,i)=>(
+                    <option key={d} value={i}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>New Start Time</label>
+                <input 
+                  className="input" 
+                  type="time" 
+                  value={moveTime} 
+                  onChange={e=>setMoveTime(e.target.value)} 
+                  required
+                />
+              </div>
+              <div className="field" style={{gridColumn:'1/-1'}}>
+                <label>Duration (minutes)</label>
+                <input 
+                  className="input" 
+                  type="number" 
+                  value={moveDuration} 
+                  onChange={e=>setMoveDuration(Number(e.target.value))} 
+                  min="15" 
+                  step="15" 
+                  required
+                />
+              </div>
+            </>
+          )}
+
+          <div style={{gridColumn:'1/-1',marginTop:8}}>
+            <button 
+              className="btn btn-primary" 
+              type="submit" 
+              style={{width:'100%',padding:12,fontSize:14,fontWeight:700}}
+            >
+              ✓ {rescheduleType === 'permanent' ? 'স্থায়ীভাবে রুটিন পরিবর্তন করুন' : 'শুধু এই ক্লাসের সময় পরিবর্তন করুন'}
+            </button>
+          </div>
+        </form>
       </Modal>
     )}
 
