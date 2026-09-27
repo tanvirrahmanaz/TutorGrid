@@ -1,0 +1,1 @@
+export default function Topbar({title,subtitle,actions}:{title:string,subtitle?:string,actions?:React.ReactNode}){return <div className="topbar"><div><h1 className="page-title">{title}</h1>{subtitle&&<div className="sub">{subtitle}</div>}</div>{actions}</div>}

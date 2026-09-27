@@ -1,0 +1,2 @@
+'use client'
+export default function Modal({title,children,onClose}:{title:string,children:React.ReactNode,onClose:()=>void}){return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={e=>e.stopPropagation()}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><h2 style={{margin:0,fontSize:20}}>{title}</h2><button className="btn btn-ghost" onClick={onClose}>Close</button></div>{children}</div></div>}

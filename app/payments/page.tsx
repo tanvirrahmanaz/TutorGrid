@@ -1,0 +1,12 @@
+'use client'
+import {useState} from 'react'
+import ProtectedLayout from '@/components/ProtectedLayout'
+import Topbar from '@/components/Topbar'
+import Modal from '@/components/Modal'
+import {useData} from '@/components/DataProvider'
+import {currency} from '@/lib/utils'
+import {Plus} from 'lucide-react'
+import {format} from 'date-fns'
+
+function Payments(){const {students,payments,savePayment}=useData();const [modal,setModal]=useState(false);const month=format(new Date(),'yyyy-MM');const rows=students.filter(s=>!s.archived).map(s=>{const paid=payments.filter(p=>p.student_id===s.id&&p.month_key===month).reduce((a,p)=>a+Number(p.amount),0);const fee=Number(s.monthly_fee||0);return{s,paid,fee,due:Math.max(0,fee-paid)}});async function add(fd:FormData){await savePayment({student_id:String(fd.get('student_id')),month_key:String(fd.get('month_key')),amount:Number(fd.get('amount')),note:String(fd.get('note')||'')});setModal(false)}return <><Topbar title="Payments" subtitle={`Monthly tuition ledger · ${month}`} actions={<button className="btn btn-primary" onClick={()=>setModal(true)}><Plus size={16}/> Add payment</button>}/><div className="card"><table className="table"><thead><tr><th>Student</th><th>Monthly fee</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead><tbody>{rows.map(r=><tr key={r.s.id}><td><b>{r.s.name}</b></td><td>{currency(r.fee)}</td><td>{currency(r.paid)}</td><td>{currency(r.due)}</td><td><span className={'badge '+(r.due===0?'green':r.paid>0?'':'red')}>{r.due===0?'Paid':r.paid>0?'Partial':'Due'}</span></td></tr>)}</tbody></table></div>{modal&&<Modal title="Add payment" onClose={()=>setModal(false)}><form action={add} className="form-grid"><div className="field"><label>Student</label><select className="select" name="student_id">{students.filter(s=>!s.archived).map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></div><div className="field"><label>Month</label><input className="input" type="month" name="month_key" defaultValue={month}/></div><div className="field"><label>Amount (BDT)</label><input className="input" type="number" name="amount" min="0" required/></div><div className="field" style={{gridColumn:'1/-1'}}><label>Note</label><textarea className="textarea" name="note" rows={3}/></div><button className="btn btn-primary">Save payment</button></form></Modal>}</>}
+export default function Page(){return <ProtectedLayout><Payments/></ProtectedLayout>}
