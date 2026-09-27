@@ -18,6 +18,7 @@ type Ctx={
   saveSchedulesBulk:(items:Array<{student_id:string;day_of_week:number;start_time:string;duration_minutes:number}>)=>Promise<void>;
   deleteSchedule:(id:string)=>Promise<void>;
   saveException:(x:Partial<ScheduleException>&{student_id:string;class_date:string;start_time:string;duration_minutes:number;status:ScheduleException['status']})=>Promise<void>;
+  saveExceptionsBulk:(items:Array<{schedule_id?:string;student_id:string;class_date:string;start_time:string;duration_minutes:number;status:ScheduleException['status'];note?:string}>)=>Promise<void>;
   deleteException:(id:string)=>Promise<void>;
   saveTask:(x:Partial<TaskItem>&{title:string})=>Promise<void>;
   savePayment:(x:Partial<Payment>&{student_id:string;month_key:string;amount:number})=>Promise<void>;
@@ -286,6 +287,51 @@ export function DataProvider({children}:{children:React.ReactNode}){
     }
   }
 
+  async function saveExceptionsBulk(items: Array<{ schedule_id?: string; student_id: string; class_date: string; start_time: string; duration_minutes: number; status: ScheduleException['status']; note?: string }>) {
+    if (!items.length) return
+    const newExObjs = items.map(x => ({
+      id: uid(),
+      schedule_id: x.schedule_id || null,
+      student_id: x.student_id,
+      class_date: x.class_date,
+      start_time: (x.start_time || '07:00').slice(0,5),
+      duration_minutes: Number(x.duration_minutes || 60),
+      status: x.status,
+      original_date: null,
+      note: x.note || null,
+      student: students.find(s => s.id === x.student_id)
+    })) as ScheduleException[]
+
+    setExceptions(prev => {
+      let filtered = prev
+      newExObjs.forEach(ne => {
+        filtered = filtered.filter(e => !(e.student_id === ne.student_id && e.class_date === ne.class_date && e.start_time.slice(0,5) === ne.start_time.slice(0,5)))
+      })
+      const next = [...filtered, ...newExObjs]
+      persist(localSnapshot({ exceptions: next }))
+      return next
+    })
+
+    if (supabase) {
+      try {
+        const rows = newExObjs.map(ne => ({
+          schedule_id: ne.schedule_id || null,
+          student_id: ne.student_id,
+          class_date: ne.class_date,
+          start_time: ne.start_time.slice(0,5),
+          duration_minutes: ne.duration_minutes,
+          status: ne.status,
+          original_date: null,
+          note: ne.note || null
+        }))
+        await supabase.from('schedule_exceptions').upsert(rows, { onConflict: 'student_id,class_date,start_time' })
+        await reload()
+      } catch (err) {
+        console.error('saveExceptionsBulk error:', err)
+      }
+    }
+  }
+
   async function deleteException(id:string){
     setExceptions(prev => {
       const next = prev.filter(e => e.id !== id)
@@ -381,7 +427,8 @@ export function DataProvider({children}:{children:React.ReactNode}){
 
   const value=useMemo(()=>({
     students,schedules,exceptions,tasks,payments,settings,reload,
-    saveStudent,archiveStudent,saveSchedule,saveSchedulesBulk,deleteSchedule,saveException,deleteException,saveTask,savePayment,saveSettings
+    saveStudent,archiveStudent,saveSchedule,saveSchedulesBulk,deleteSchedule,
+    saveException,saveExceptionsBulk,deleteException,saveTask,savePayment,saveSettings
   }),[students,schedules,exceptions,tasks,payments,settings])
 
   return <C.Provider value={value}>{children}</C.Provider>
