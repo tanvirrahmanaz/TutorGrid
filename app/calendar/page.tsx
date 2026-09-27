@@ -16,7 +16,7 @@ const DAY_PRESETS = [
 ]
 
 function CalendarContent(){
-  const {students,schedules,exceptions,settings,saveSchedule,saveSchedulesBulk,deleteSchedule,deleteException,saveException}=useData()
+  const {students,schedules,exceptions,settings,saveSchedule,saveSchedulesBulk,deleteSchedule,deleteException,deleteAllForStudent,saveException}=useData()
   const [week,setWeek]=useState(new Date())
   const [modal,setModal]=useState(false)
   const [selected,setSelected]=useState<any>(null)
@@ -162,7 +162,7 @@ function CalendarContent(){
       })
 
     const ext = exceptions
-      .filter(e => e.class_date === selectedDateStr && ['scheduled','completed','rescheduled'].includes(e.status))
+      .filter(e => e.class_date === selectedDateStr && ['scheduled','rescheduled'].includes(e.status))
       .map(e => ({
         id: e.id,
         schedule_id: e.schedule_id,
@@ -1012,10 +1012,26 @@ function CalendarContent(){
                             await deleteException(c.id)
                           }
                         } else {
-                          if (confirm(`Are you sure you want to permanently delete ${sName}'s weekly schedule on ${DAYS[selectedDayIdx]}?`)) {
+                          const choice = window.confirm(
+                            `Delete options for ${sName}:\n\n` +
+                            `[OK] = Delete ONLY this ${DAYS[selectedDayIdx]} slot\n` +
+                            `[Cancel] = Cancel (use the button again to delete ALL)`
+                          )
+                          if (choice) {
+                            // Delete only this specific day's schedule
                             await deleteSchedule(c.id)
                             if (c.exception?.id) {
                               await deleteException(c.exception.id)
+                            }
+                          } else {
+                            // Second confirm for deleting ALL schedules
+                            const deleteAll = window.confirm(
+                              `⚠️ DELETE ALL SCHEDULES for ${sName}?\n\n` +
+                              `এটা ${sName}-এর সকল weekly schedule এবং সকল extra/rescheduled class মুছে দেবে।\n\n` +
+                              `[OK] = হ্যাঁ, সব মুছো\n[Cancel] = না`
+                            )
+                            if (deleteAll) {
+                              await deleteAllForStudent(c.student_id)
                             }
                           }
                         }

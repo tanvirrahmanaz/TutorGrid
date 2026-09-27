@@ -23,6 +23,7 @@ type Ctx = {
   saveSchedule: (x: Partial<Schedule> & { student_id: string }) => Promise<void>;
   saveSchedulesBulk: (items: Array<{ student_id: string; day_of_week: number; start_time: string; duration_minutes: number }>) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
+  deleteAllForStudent: (student_id: string) => Promise<void>;
   saveException: (x: Partial<ScheduleException> & { student_id: string; class_date: string; start_time: string; duration_minutes: number; status: ScheduleException['status'] }) => Promise<void>;
   saveExceptionsBulk: (items: Array<{ schedule_id?: string; student_id: string; class_date: string; start_time: string; duration_minutes: number; status: ScheduleException['status']; note?: string }>) => Promise<void>;
   deleteException: (id: string) => Promise<void>;
@@ -840,6 +841,51 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function deleteAllForStudent(student_id: string) {
+    lastActionTimestampRef.current = Date.now()
+
+    // Mark all schedule IDs for this student as deleted tombstones
+    const studentScheds = schedules.filter(s => s.student_id === student_id)
+    const studentExs = exceptions.filter(e => e.student_id === student_id)
+    studentScheds.forEach(s => addDeletedId('schedules', s.id))
+    studentExs.forEach(e => addDeletedId('exceptions', e.id))
+
+    // Optimistic local removal
+    setSchedules(prev => {
+      const next = prev.filter(s => s.student_id !== student_id)
+      persistLocal({ schedules: next })
+      return next
+    })
+    setExceptions(prev => {
+      const next = prev.filter(e => e.student_id !== student_id)
+      persistLocal({ exceptions: next })
+      return next
+    })
+
+    if (supabase) {
+      try {
+        // Delete all schedules for student in Supabase
+        await supabase.from('schedules').delete().eq('student_id', student_id)
+        // Delete all exceptions for student in Supabase
+        await supabase.from('schedule_exceptions').delete().eq('student_id', student_id)
+
+        // Re-fetch both to confirm clean state
+        const deletedSchedIds = getDeletedIds('schedules')
+        const deletedExIds = getDeletedIds('exceptions')
+        const { data: freshScheds } = await supabase.from('schedules').select('*,student:students(*)').eq('active', true)
+        const { data: freshEx } = await supabase.from('schedule_exceptions').select('*,student:students(*)')
+        const cleanScheds = ((freshScheds || []) as Schedule[]).filter(s => !deletedSchedIds.has(s.id))
+        const cleanEx = ((freshEx || []) as ScheduleException[]).filter(e => !deletedExIds.has(e.id))
+        setSchedules(cleanScheds)
+        setExceptions(cleanEx)
+        persistLocal({ schedules: cleanScheds, exceptions: cleanEx })
+        setSyncStatus('synced')
+      } catch (err: any) {
+        console.error('deleteAllForStudent error:', err)
+      }
+    }
+  }
+
   async function saveSettings(x: Partial<Settings>) {
     const row = { ...settings, ...x }
     setSettings(row)
@@ -871,6 +917,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     saveSchedule,
     saveSchedulesBulk,
     deleteSchedule,
+    deleteAllForStudent,
     saveException,
     saveExceptionsBulk,
     deleteException,
