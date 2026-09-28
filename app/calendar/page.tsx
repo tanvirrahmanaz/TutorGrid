@@ -109,9 +109,13 @@ function CalendarContent(){
 
     // Rescheduled or extra classes scheduled for this date & slot
     const extras = exceptions
-      .filter(e => e.class_date === date && e.start_time.slice(0,5) === cleanSlot && ['scheduled','completed'].includes(e.status) && studentName(e.student_id).toLowerCase().includes(query.toLowerCase()))
+      .filter(e => e.class_date === date && e.start_time.slice(0,5) === cleanSlot && (
+        (!e.schedule_id && ['scheduled','completed'].includes(e.status)) ||
+        (e.schedule_id && e.status === 'scheduled')
+      ) && studentName(e.student_id).toLowerCase().includes(query.toLowerCase()))
       .map(e => ({
         id: e.id,
+        schedule_id: e.schedule_id,
         student_id: e.student_id,
         student: e.student || students.find(st => st.id === e.student_id),
         start_time: e.start_time.slice(0,5),
@@ -439,24 +443,41 @@ function CalendarContent(){
         start_time: moveTime.slice(0,5),
         duration_minutes: Number(moveDuration)
       })
+      if (selected.is_exception) {
+        await deleteException(selected.id)
+      }
     } else {
-      await saveException({
-        schedule_id: selected.id,
-        student_id: selected.student_id,
-        class_date: selected.date,
-        start_time: selected.start_time.slice(0,5),
-        duration_minutes: selected.duration_minutes,
-        status: 'rescheduled',
-        original_date: selected.date
-      })
-      await saveException({
-        student_id: selected.student_id,
-        class_date: moveDate,
-        start_time: moveTime.slice(0,5),
-        duration_minutes: Number(moveDuration),
-        status: 'scheduled',
-        original_date: selected.date
-      })
+      if (selected.is_exception) {
+        // If it was already an exception, update it to the new date/time
+        await saveException({
+          id: selected.id,
+          schedule_id: selected.schedule_id || null,
+          student_id: selected.student_id,
+          class_date: moveDate,
+          start_time: moveTime.slice(0,5),
+          duration_minutes: Number(moveDuration),
+          status: 'scheduled',
+          original_date: selected.original_date || selected.date
+        })
+      } else {
+        await saveException({
+          schedule_id: selected.id,
+          student_id: selected.student_id,
+          class_date: selected.date,
+          start_time: selected.start_time.slice(0,5),
+          duration_minutes: selected.duration_minutes,
+          status: 'rescheduled',
+          original_date: selected.date
+        })
+        await saveException({
+          student_id: selected.student_id,
+          class_date: moveDate,
+          start_time: moveTime.slice(0,5),
+          duration_minutes: Number(moveDuration),
+          status: 'scheduled',
+          original_date: selected.date
+        })
+      }
     }
 
     setSelected(null)
@@ -1146,13 +1167,16 @@ function CalendarContent(){
             style={{flex:1,padding:'7px 10px',fontSize:12}} 
             onClick={async()=>{
               await saveException({
-                schedule_id:selected.id,
-                student_id:selected.student_id,
-                class_date:selected.date,
-                start_time:selected.start_time.slice(0,5),
-                duration_minutes:selected.duration_minutes,
-                status:'off'
+                schedule_id: selected.is_exception ? (selected.schedule_id || null) : selected.id,
+                student_id: selected.student_id,
+                class_date: selected.date,
+                start_time: selected.start_time.slice(0,5),
+                duration_minutes: selected.duration_minutes,
+                status: 'off'
               });
+              if (selected.is_exception) {
+                await deleteException(selected.id);
+              }
               setSelected(null)
             }}
           >
@@ -1163,13 +1187,39 @@ function CalendarContent(){
             className="btn btn-ghost" 
             style={{padding:'7px 12px',fontSize:12,color:'#dc2626'}} 
             onClick={async()=>{
-              if(confirm('Delete this weekly schedule slot for ' + studentName(selected.student_id) + '?')){
-                await deleteSchedule(selected.id);
-                setSelected(null);
+              const name = studentName(selected.student_id);
+              if (selected.is_exception) {
+                if (confirm(`Remove this class (${name})?`)) {
+                  await deleteException(selected.id);
+                  setSelected(null);
+                }
+              } else {
+                if (confirm('Delete this weekly schedule slot for ' + name + '?')) {
+                  await deleteSchedule(selected.id);
+                  setSelected(null);
+                }
               }
             }}
           >
             <Trash2 size={13} style={{display:'inline',marginRight:4,verticalAlign:-2}}/> Delete
+          </button>
+        </div>
+
+        {/* Delete All Option */}
+        <div style={{marginTop:8,textAlign:'center',borderTop:'1px dashed #e2e8f0',paddingTop:6}}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{width:'100%',padding:'5px 8px',fontSize:11,color:'#ef4444',opacity:0.9,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:4}}
+            onClick={async()=>{
+              const name = studentName(selected.student_id);
+              if (confirm(`⚠️ ${name}-এর সকল সাপ্তাহিক শিডিউল ও এক্সট্রা ক্লাস সম্পূর্ণ মুছে ফেলতে চান?`)) {
+                await deleteAllForStudent(selected.student_id);
+                setSelected(null);
+              }
+            }}
+          >
+            <UserX size={12}/> {studentName(selected.student_id)}-এর সব শিডিউল মুছে ফেলুন
           </button>
         </div>
       </div>
