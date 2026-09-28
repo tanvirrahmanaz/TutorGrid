@@ -129,7 +129,9 @@ function CalendarContent(){
   }
 
   function overlap(day:number,slot:string){
-    return schedules.filter(s=>Number(s.day_of_week)===Number(day)&&s.start_time.slice(0,5)===slot.slice(0,5)&&s.active!==false).length>1
+    const matching = schedules.filter(s=>Number(s.day_of_week)===Number(day)&&s.start_time.slice(0,5)===slot.slice(0,5)&&s.active!==false)
+    const uniqueStudents = new Set(matching.map(s => s.student_id))
+    return uniqueStudents.size > 1
   }
 
   // Count classes for each day of the week (to show on day pills)
@@ -140,7 +142,10 @@ function CalendarContent(){
         const ex = exFor(s.student_id, dStr, s.start_time)
         return !ex || !['off','cancelled','rescheduled','missed'].includes(ex.status)
       })
-      const ext = exceptions.filter(e => e.class_date === dStr && ['scheduled','completed'].includes(e.status))
+      const ext = exceptions.filter(e => e.class_date === dStr && (
+        (!e.schedule_id && ['scheduled','completed'].includes(e.status)) ||
+        (e.schedule_id && e.status === 'scheduled')
+      ))
       return reg.length + ext.length
     })
   }, [dates, schedules, exceptions])
@@ -166,7 +171,10 @@ function CalendarContent(){
       })
 
     const ext = exceptions
-      .filter(e => e.class_date === selectedDateStr && ['scheduled','completed'].includes(e.status))
+      .filter(e => e.class_date === selectedDateStr && (
+        (!e.schedule_id && ['scheduled','completed'].includes(e.status)) ||
+        (e.schedule_id && e.status === 'scheduled')
+      ))
       .map(e => ({
         id: e.id,
         schedule_id: e.schedule_id,
@@ -185,12 +193,13 @@ function CalendarContent(){
       .sort((a,b) => a.start_time.localeCompare(b.start_time))
   }, [schedules, exceptions, selectedDayIdx, selectedDateStr, query, students])
 
-  // Return the specific classes that overlap with this class item
+  // Return the specific classes that overlap with this class item (excluding the same student)
   function getDayConflicts(classItem: any) {
     const startM = minutesFromTime(classItem.start_time)
     const endM = startM + Number(classItem.duration_minutes || 60)
     return agendaDayClasses.filter(other => {
-      if (other.id === classItem.id && other.student_id === classItem.student_id) return false
+      // The same student cannot conflict with themselves!
+      if (other.student_id === classItem.student_id) return false
       const oStartM = minutesFromTime(other.start_time)
       const oEndM = oStartM + Number(other.duration_minutes || 60)
       return !(endM <= oStartM || startM >= oEndM)
@@ -211,7 +220,8 @@ function CalendarContent(){
 
       const candEnd = m + durationMin
       const hasOverlap = agendaDayClasses.some(other => {
-        if (other.id === classItem.id && other.student_id === classItem.student_id) return false
+        // The same student does not block their own free slots
+        if (other.student_id === classItem.student_id) return false
         const oStart = minutesFromTime(other.start_time)
         const oEnd = oStart + Number(other.duration_minutes || 60)
         return !(candEnd <= oStart || m >= oEnd)
@@ -277,7 +287,10 @@ function CalendarContent(){
         }))
 
       const ext = exceptions
-        .filter(e => e.class_date === dStr && ['scheduled','completed'].includes(e.status))
+        .filter(e => e.class_date === dStr && (
+          (!e.schedule_id && ['scheduled','completed'].includes(e.status)) ||
+          (e.schedule_id && e.status === 'scheduled')
+        ))
         .map(e => ({
           id: e.id,
           schedule_id: e.schedule_id,
@@ -295,6 +308,9 @@ function CalendarContent(){
         for (let j = i + 1; j < allClasses.length; j++) {
           const c1 = allClasses[i]
           const c2 = allClasses[j]
+          // The same student cannot conflict with themselves!
+          if (c1.student_id === c2.student_id) continue
+
           const s1 = minutesFromTime(c1.start_time)
           const e1 = s1 + Number(c1.duration_minutes || 60)
           const s2 = minutesFromTime(c2.start_time)
@@ -345,9 +361,9 @@ function CalendarContent(){
       const candStartM = minutesFromTime(candTime)
       const candEndM = candStartM + testDur
 
-      // Must be free in ALL selected days
+      // Must be free in ALL selected days (check against other students)
       return selectedDays.every(day => {
-        const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false)
+        const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false && (!selectedStudentId || s.student_id !== selectedStudentId))
         return dayClasses.every(s => {
           const sStart = minutesFromTime(s.start_time)
           const sEnd = sStart + s.duration_minutes
@@ -357,13 +373,13 @@ function CalendarContent(){
       })
     })
 
-    // Current selected time conflict check
+    // Current selected time conflict check (warn only if conflicting with another student)
     const currentStartM = minutesFromTime(startTime)
     const currentEndM = currentStartM + testDur
     const conflicts: Array<{ day: number; student_name: string; time: string; duration: number }> = []
 
     selectedDays.forEach(day => {
-      const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false)
+      const dayClasses = schedules.filter(s => Number(s.day_of_week) === Number(day) && s.active !== false && (!selectedStudentId || s.student_id !== selectedStudentId))
       dayClasses.forEach(s => {
         const sStart = minutesFromTime(s.start_time)
         const sEnd = sStart + s.duration_minutes
